@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>org.example</groupId>
+    <groupId>com.carlosmgv02</groupId>
     <artifactId>logging-library</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>logging-library</name>

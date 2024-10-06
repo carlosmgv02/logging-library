@@ -1,4 +1,4 @@
-package org.example.logginglibrary;
+package com.carlosmgv02.logginglibrary;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

@@ -1,4 +1,4 @@
-package org.example.logginglibrary;
+package com.carlosmgv02.logginglibrary;
 
 import io.opentelemetry.api.trace.Span;
 import org.slf4j.MDC;

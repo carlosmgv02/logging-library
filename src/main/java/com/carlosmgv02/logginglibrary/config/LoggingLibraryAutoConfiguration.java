@@ -1,4 +1,4 @@
-package org.example.logginglibrary.config;
+package com.carlosmgv02.logginglibrary.config;
 
 
 import jakarta.annotation.PostConstruct;
