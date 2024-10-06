@@ -4,10 +4,8 @@
 
 This **logging library** is designed to centralize and send logs from multiple microservices to an **Elasticsearch** and **Logstash** stack for centralized log analysis. It helps manage traceability across services using **traceId** and **spanId** and handles exceptions in **Spring Boot** applications.
 
-Logs are sent to **Logstash**, processed, and then stored in **Elasticsearch**. You can visualize these logs in **Kibana** using a **Data View** that can be automated via an API request.
 
 ### Features:
-- Automatic capture and management of **traceId** and **spanId** to trace requests across microservices.
 - Sends logs to **Logstash** via TCP.
 - Integrates with **Elasticsearch** for storing logs and visualizing them in **Kibana**.
 - Automates the creation of **Data Views** in **Kibana** through an API.
@@ -16,7 +14,7 @@ Logs are sent to **Logstash**, processed, and then stored in **Elasticsearch**. 
 
 ### Step 1: Add the Logging Library to Your Spring Boot Project
 
-You can integrate the logging library into your **Spring Boot** application by including it as a dependency. If you've built the library locally:
+To integrate the library into your **Spring Boot** project:
 
 1. Install the library in your local Maven repository:
 
@@ -39,37 +37,40 @@ mvn clean install
 To configure **Logback** to use the logging library and send logs to **Logstash**, add or modify your `logback-spring.xml` or `logback.xml` file in your Spring Boot project as follows:
 
 ```xml
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- Console Appender with traceId and spanId -->
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>
-                [%boldCyan(traceId: %X{traceId}) %boldBlue(spanId: %X{spanId})] %d{yyyy-MM-dd HH:mm:ss.SSS} [%level] %logger{36} - %msg%n
-            </pattern>
-        </encoder>
-    </appender>
+   <!-- Custom LogColorizer to colorize logs -->
+   <property scope="context" name="COLORIZER_COLORS" value="red@,yellow@,green@,blue@,cyan@"/>
+   <conversionRule conversionWord="colorize" converterClass="org.tuxdude.logback.extensions.LogColorizer"/>
 
-    <!-- Logstash Appender -->
-    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <destination>localhost:5000</destination>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <customFields>{"service":"${spring.application.name:-undefined-service}"}</customFields>
-            <pattern>
-                {"@timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZZ}","level":"%level","logger":"%logger","traceId":"%X{traceId}","spanId":"%X{spanId}"}
-            </pattern>
-        </encoder>
-    </appender>
+   <!-- Appender to send logs to Logstash -->
+   <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+      <destination>localhost:5050</destination> <!-- Dirección de Logstash -->
+      <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+         <customFields>{"service":"${spring.application.name:-undefined-service}"}</customFields>
+      </encoder>
+   </appender>
 
-    <root level="INFO">
-        <appender-ref ref="STDOUT" />
-        <appender-ref ref="LOGSTASH" />
-    </root>
+   <!-- Console appender to print logs to the console -->
+   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+         <pattern>
+            %d{yyyy-MM-dd HH:mm:ss.SSS} [%colorize(%-5level)] %magenta(${spring.application.name:-undefined-service}) [%boldCyan(traceId: %X{traceId}) %boldBlue(spanId: %X{spanId})] [%logger{36}] - %msg%n
+         </pattern>
+      </encoder>
+   </appender>
+
+   <!-- Logger de root -->
+   <root level="INFO">
+      <appender-ref ref="LOGSTASH"/>
+      <appender-ref ref="STDOUT"/>
+   </root>
 </configuration>
 ```
 
 ### Step 3: Running with Docker Compose
 
-We provide a **Docker Compose** file that sets up **Elasticsearch**, **Logstash**, **Kibana**, and the **OpenTelemetry Collector**. You can download it from the project:
+I provide a **Docker Compose** file that sets up **Elasticsearch**, **Logstash**, **Kibana**, and the **OpenTelemetry Collector**. You can download it from the project:
 
 [Download docker-compose.yaml](docker-compose.yaml)
 
@@ -121,12 +122,72 @@ mvn spring-boot:run
 
 ### Step 6: Securing Elasticsearch and Kibana
 
-When running in production, you should secure access to **Elasticsearch** and **Kibana**. You can do this by:
+For production:
 
-- **Enabling security features** in Elasticsearch (`xpack.security.enabled=true`) and using HTTPS.
-- **Configuring role-based access control (RBAC)** to restrict access to the logs based on user roles.
-- **Enabling authentication in Kibana**, requiring users to log in with credentials.
+- Enable security (`xpack.security.enabled=true`) and use HTTPS for Elasticsearch.
+- Configure RBAC (Role-Based Access Control) to restrict access based on roles.
+- Enable authentication in Kibana.
 
+---
+
+### Logstash Configuration
+
+This config handles the log ingestion process:
+
+```yaml
+input {
+    tcp {
+        port => 5000
+        codec => json_lines
+    }
+}
+
+output {
+    elasticsearch {
+        hosts => ["http://elasticsearch:9200"]
+        index => "logstash-logs-%{+YYYY.MM.dd}"
+    }
+    stdout { codec => rubydebug }
+}
+```
+
+- **Input**: Listens on port `5000` for JSON logs.
+- **Output**: Sends logs to **Elasticsearch** and prints them to the console for debugging.
+
+### OpenTelemetry (OTLP) Collector Configuration
+
+This config handles trace collection:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  logging:
+    loglevel: debug
+
+processors:
+  batch:
+    timeout: 5s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [logging]
+```
+
+- **Receivers**: Accepts gRPC traces on port `4317`.
+- **Exporters**: Logs traces to the console.
+- **Processors**: Batches traces for efficiency.
+
+
+## Author
+* **Carlos Martínez García-Villarrubia**
 ---
 
 https://github.com/user-attachments/assets/baf0e73d-1960-4297-aa3b-dd9c15d668ac
