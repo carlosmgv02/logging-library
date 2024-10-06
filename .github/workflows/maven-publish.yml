@@ -4,6 +4,13 @@
 name: Maven Package
 
 on:
+  workflow_dispatch:   # Añadir esto para ejecutar manualmente
+    inputs:
+      branch:
+        description: 'Branch to run'
+        default: 'master'
+        required: true
+
   release:
     types: [created]
 
