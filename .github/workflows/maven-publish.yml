@@ -23,23 +23,41 @@ jobs:
       packages: write
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Remove existing settings.xml if it exists
-      run: rm -f ${{ github.workspace }}/.github/settings.xml
+      - name: Check if settings.xml exists
+        id: check-settings-file
+        run: |
+          if [ -f "${{ github.workspace }}/.github/settings.xml" ]; then
+            echo "settings.xml exists."
+            echo "SETTINGS_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "settings.xml does not exist."
+            echo "SETTINGS_EXISTS=false" >> $GITHUB_ENV
+          fi
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        server-id: github
-        settings-path: ${{ github.workspace }}/.github/settings.xml # path to settings.xml file
+      - name: Create settings.xml if it does not exist
+        if: env.SETTINGS_EXISTS == 'false'
+        run: |
+          echo "Creating settings.xml..."
+          cat <<EOF >${{ github.workspace }}/.github/settings.xml
+          <settings>
+            <!-- Add your settings here -->
+          </settings>
+          EOF
 
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          server-id: github
+          settings-path: ${{ github.workspace }}/.github/settings.xml # path to settings.xml file
 
-    - name: Publish to GitHub Packages Apache Maven
-      run: mvn deploy -s $GITHUB_WORKSPACE/.github/settings.xml
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build with Maven
+        run: mvn -B package --file pom.xml
+
+      - name: Publish to GitHub Packages Apache Maven
+        run: mvn deploy -s $GITHUB_WORKSPACE/.github/settings.xml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
