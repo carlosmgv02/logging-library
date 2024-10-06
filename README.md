@@ -126,3 +126,10 @@ When running in production, you should secure access to **Elasticsearch** and **
 - **Enabling security features** in Elasticsearch (`xpack.security.enabled=true`) and using HTTPS.
 - **Configuring role-based access control (RBAC)** to restrict access to the logs based on user roles.
 - **Enabling authentication in Kibana**, requiring users to log in with credentials.
+
+---
+
+https://github.com/user-attachments/assets/baf0e73d-1960-4297-aa3b-dd9c15d668ac
+
+
+
