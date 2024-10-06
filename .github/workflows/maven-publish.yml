@@ -18,13 +18,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Remove existing settings.xml if it exists
+      run: rm -f ${{ github.workspace }}/.github/settings.xml
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         server-id: github
-        settings-path: ${{ github.workspace }}/.github/settings.xml # Ruta al settings.xml
+        settings-path: ${{ github.workspace }}/.github/settings.xml # path to settings.xml file
 
     - name: Build with Maven
       run: mvn -B package --file pom.xml
