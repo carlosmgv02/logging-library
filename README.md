@@ -28,7 +28,7 @@ mvn clean install
 
 ```xml
 <dependency>
-    <groupId>org.example</groupId>
+    <groupId>com.carlosmgv02</groupId>
     <artifactId>logging-library</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>
