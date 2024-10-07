@@ -87,7 +87,7 @@ The `docker-compose.yaml` file includes:
 - **Kibana** on port `5601`
 - **OTLP Collector** on port `4317`
 > [!WARNING]
-> Check ports at docker-compose.yaml, contend might be different.
+> Check ports at docker-compose.yaml, content might be different.
 ### Step 4: Automating Data View Creation in Kibana
 
 Once the logs are being ingested into Elasticsearch, you can automate the creation of a **Data View** in **Kibana** using the following API request:
