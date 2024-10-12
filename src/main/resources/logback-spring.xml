@@ -6,7 +6,8 @@
 
     <!-- Appender para enviar logs a Logstash -->
     <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <destination>localhost:5050</destination> <!-- Dirección de Logstash -->
+        <!-- Usar variable de entorno para la dirección de Logstash -->
+        <destination>${LOGSTASH_HOST:-localhost}:${LOGSTASH_PORT:-5050}</destination> <!-- Dirección de Logstash -->
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <customFields>{"service":"${spring.application.name:-undefined-service}"}</customFields>
         </encoder>
