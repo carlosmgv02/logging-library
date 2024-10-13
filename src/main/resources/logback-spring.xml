@@ -9,7 +9,7 @@
         <!-- Usar variable de entorno para la dirección de Logstash -->
         <destination>${LOGSTASH_HOST:-localhost}:${LOGSTASH_PORT:-5050}</destination> <!-- Dirección de Logstash -->
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <customFields>{"service":"${spring.application.name:-undefined-service}"}</customFields>
+            <customFields>{"service":"${SPRING_APPLICATION_NAME:-undefined-service}"}</customFields>
         </encoder>
     </appender>
 
