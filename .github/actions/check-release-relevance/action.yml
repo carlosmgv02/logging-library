@@ -1,0 +1,109 @@
+name: 'Check Release Relevance'
+description: 'Determines if a release should be created based on file changes'
+
+inputs:
+  base-ref:
+    description: 'Base reference for comparison'
+    required: true
+    default: 'origin/master'
+  head-ref:
+    description: 'Head reference for comparison'
+    required: true
+    default: 'HEAD'
+
+outputs:
+  should-release:
+    description: 'Whether a release should be created'
+    value: ${{ steps.check.outputs.should-release }}
+  reason:
+    description: 'Reason for the decision'
+    value: ${{ steps.check.outputs.reason }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check for relevant changes
+      id: check
+      shell: bash
+      run: |
+        echo "Checking for release-relevant changes between ${{ inputs.base-ref }} and ${{ inputs.head-ref }}"
+
+        # Get list of changed files
+        CHANGED_FILES=$(git diff --name-only ${{ inputs.base-ref }}...${{ inputs.head-ref }})
+
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+
+        # Define patterns that should trigger a release
+        RELEASE_PATTERNS=(
+          "src/"
+          "pom.xml"
+          "*.java"
+          "*.xml"
+          "*.yaml"
+          "*.yml"
+          "*.properties"
+        )
+
+        # Define patterns that should NOT trigger a release
+        IGNORE_PATTERNS=(
+          ".github/"
+          "*.md"
+          ".gitignore"
+          "LICENSE"
+          "CHANGELOG.md"
+        )
+
+        SHOULD_RELEASE="false"
+        RELEVANT_CHANGES=""
+
+        # Check each changed file
+        while IFS= read -r file; do
+          if [ -z "$file" ]; then
+            continue
+          fi
+
+          # Skip if file matches ignore patterns
+          SHOULD_IGNORE="false"
+          for ignore_pattern in "${IGNORE_PATTERNS[@]}"; do
+            if [[ "$file" == *"$ignore_pattern"* ]]; then
+              SHOULD_IGNORE="true"
+              break
+            fi
+          done
+
+          if [ "$SHOULD_IGNORE" = "true" ]; then
+            echo "Ignoring: $file"
+            continue
+          fi
+
+          # Check if file matches release patterns
+          for pattern in "${RELEASE_PATTERNS[@]}"; do
+            if [[ "$file" == *"$pattern"* ]]; then
+              SHOULD_RELEASE="true"
+              RELEVANT_CHANGES="$RELEVANT_CHANGES$file\n"
+              echo "Relevant change found: $file"
+              break
+            fi
+          done
+        done <<< "$CHANGED_FILES"
+
+        # Determine reason
+        if [ "$SHOULD_RELEASE" = "true" ]; then
+          REASON="Found relevant changes in source code or configuration files"
+          echo "✅ Release should be created"
+          echo "Relevant files changed:"
+          echo -e "$RELEVANT_CHANGES"
+        else
+          REASON="No relevant changes found (only documentation or CI changes)"
+          echo "⏭️ No release needed"
+          echo "All changes are in documentation or CI files"
+        fi
+
+        echo "should-release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+        echo "reason=$REASON" >> $GITHUB_OUTPUT
+
+        echo ""
+        echo "📋 Summary:"
+        echo "Should create release: $SHOULD_RELEASE"
+        echo "Reason: $REASON"

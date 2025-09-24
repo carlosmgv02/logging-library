@@ -1,30 +1,92 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- Definición de colores personalizados -->
+    <!-- Properties -->
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name" defaultValue="undefined-service"/>
+    <springProperty scope="context" name="LOGSTASH_HOST" source="logging.logstash.host" defaultValue="localhost"/>
+    <springProperty scope="context" name="LOGSTASH_PORT" source="logging.logstash.port" defaultValue="5050"/>
+
+    <!-- Custom LogColorizer to colorize logs -->
     <property scope="context" name="COLORIZER_COLORS" value="red@,yellow@,green@,blue@,cyan@"/>
     <conversionRule conversionWord="colorize" converterClass="org.tuxdude.logback.extensions.LogColorizer"/>
 
-    <!-- Appender para enviar logs a Logstash -->
-    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <!-- Usar variable de entorno para la dirección de Logstash -->
-        <destination>${LOGSTASH_HOST:-localhost}:${LOGSTASH_PORT:-5050}</destination> <!-- Dirección de Logstash -->
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <customFields>{"service":"${SPRING_APPLICATION_NAME:-undefined-service}"}</customFields>
-        </encoder>
-    </appender>
-
-    <!-- Console appender para desarrollo con colores y clase del logger -->
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Console Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>
-                %d{yyyy-MM-dd HH:mm:ss.SSS} [%colorize(%-5level)] %magenta(${spring.application.name:-undefined-service}) [%boldCyan(traceId: %X{traceId}) %boldBlue(spanId: %X{spanId})] [%logger{36}] - %msg%n
+                %d{HH:mm:ss.SSS} [%colorize(%-5level)] %magenta(${SERVICE_NAME}) [%boldCyan(traceId: %X{traceId:-}) %boldBlue(spanId: %X{spanId:-})] [%logger{36}] - %msg%n
             </pattern>
         </encoder>
     </appender>
 
-    <!-- Logger de root -->
-    <root level="INFO">
+    <!-- Async Console Appender -->
+    <appender name="ASYNC_CONSOLE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="CONSOLE"/>
+        <queueSize>1000</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+    </appender>
+
+    <!-- Logstash TCP Appender -->
+    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+        <destination>${LOGSTASH_HOST}:${LOGSTASH_PORT}</destination>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeContext>true</includeContext>
+            <includeMdc>true</includeMdc>
+            <customFields>{"service":"${SERVICE_NAME}"}</customFields>
+            <fieldNames>
+                <timestamp>@timestamp</timestamp>
+                <message>message</message>
+                <level>level</level>
+                <thread>thread</thread>
+                <logger>logger</logger>
+            </fieldNames>
+        </encoder>
+        <connectionTimeout>5000</connectionTimeout>
+        <keepAliveDuration>20000</keepAliveDuration>
+    </appender>
+
+    <!-- Async Logstash Appender -->
+    <appender name="ASYNC_LOGSTASH" class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="LOGSTASH"/>
-        <appender-ref ref="STDOUT"/>
+        <queueSize>1000</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+    </appender>
+
+    <!-- File Appender for local development -->
+    <springProfile name="!prod">
+        <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>logs/${SERVICE_NAME}.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>logs/${SERVICE_NAME}-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+                <maxHistory>30</maxHistory>
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeContext>true</includeContext>
+                <includeMdc>true</includeMdc>
+            </encoder>
+        </appender>
+    </springProfile>
+
+    <!-- Application specific loggers -->
+    <logger name="com.carlosmgv02.logginglibrary" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_CONSOLE"/>
+        <appender-ref ref="ASYNC_LOGSTASH"/>
+    </logger>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="ASYNC_CONSOLE"/>
+        <appender-ref ref="ASYNC_LOGSTASH"/>
+        <springProfile name="!prod">
+            <appender-ref ref="FILE"/>
+        </springProfile>
     </root>
+
+    <!-- Reduce noise from Spring Boot -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.apache" level="WARN"/>
 </configuration>

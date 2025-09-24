@@ -36,3 +36,7 @@ build/
 mvnw
 mvnw.cmd
 .mvn/
+
+.github/DEPLOYMENT.md
+INTEGRATION.md
+logs
