@@ -78,42 +78,22 @@ jobs:
           echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $CURRENT_VERSION"
 
-      - name: Determine version increment type
+      - name: Check release relevance and determine version type
+        id: release_check
+        uses: ./.github/actions/check-release-relevance
+        with:
+          base-ref: ${{ github.event.before || 'HEAD~1' }}
+          head-ref: ${{ github.sha }}
+
+      - name: Set version increment type
         id: version_type
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             VERSION_TYPE="${{ github.event.inputs.version_type }}"
             echo "Manual trigger: Using $VERSION_TYPE"
           else
-            # Analyze commits since last tag for version type
-            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-
-            if [ -z "$LAST_TAG" ]; then
-              echo "No previous tag found, using patch"
-              VERSION_TYPE="patch"
-            else
-              echo "Last tag: $LAST_TAG"
-
-              # Get commits since last tag
-              COMMITS=$(git log $LAST_TAG..HEAD --oneline)
-              echo "Commits since last tag:"
-              echo "$COMMITS"
-
-              # Determine version type based on conventional commits
-              if echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|feature)(\(.+\))?!:"; then
-                VERSION_TYPE="major"
-                echo "Found breaking feature, using major"
-              elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ .+!:"; then
-                VERSION_TYPE="major"
-                echo "Found breaking change, using major"
-              elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|feature)(\(.+\))?:"; then
-                VERSION_TYPE="minor"
-                echo "Found feature, using minor"
-              else
-                VERSION_TYPE="patch"
-                echo "No major/minor changes found, using patch"
-              fi
-            fi
+            VERSION_TYPE="${{ steps.release_check.outputs.version-type }}"
+            echo "Auto-detected version type: $VERSION_TYPE"
           fi
 
           echo "increment_type=$VERSION_TYPE" >> $GITHUB_OUTPUT
@@ -132,20 +112,40 @@ jobs:
           VERSION_TYPE="${{ steps.version_type.outputs.increment_type }}"
           echo "Incrementing version by: $VERSION_TYPE"
 
-          # Use Maven versions plugin to increment version
+          # Get current version
+          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "Current version: $CURRENT_VERSION"
+
+          # Remove -SNAPSHOT suffix if present
+          BASE_VERSION=${CURRENT_VERSION%-SNAPSHOT}
+          
+          # Split version into parts
+          IFS='.' read -r -a version_parts <<< "$BASE_VERSION"
+          MAJOR=${version_parts[0]}
+          MINOR=${version_parts[1]}
+          PATCH=${version_parts[2]}
+
+          # Increment based on type
           case $VERSION_TYPE in
             "major")
-              mvn versions:set -DnextMajorVersion=true -DgenerateBackupPoms=false
+              NEW_MAJOR=$((MAJOR + 1))
+              NEW_VERSION="${NEW_MAJOR}.0.0"
               ;;
             "minor")
-              mvn versions:set -DnextMinorVersion=true -DgenerateBackupPoms=false
+              NEW_MINOR=$((MINOR + 1))
+              NEW_VERSION="${MAJOR}.${NEW_MINOR}.0"
               ;;
             "patch"|*)
-              mvn versions:set -DnextPatchVersion=true -DgenerateBackupPoms=false
+              NEW_PATCH=$((PATCH + 1))
+              NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
               ;;
           esac
 
-          NEW_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "NEW_VERSION=$NEW_VERSION"
+          
+          # Update pom.xml with new version
+          mvn versions:set -DnewVersion=$NEW_VERSION -DgenerateBackupPoms=false
+          
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "New version: $NEW_VERSION"
 
@@ -211,6 +211,14 @@ jobs:
           TAG_NAME="v${NEW_VERSION}"
 
           echo "Creating tag: $TAG_NAME"
+          
+          # Check if tag already exists
+          if git tag -l | grep -q "^${TAG_NAME}$"; then
+            echo "Tag $TAG_NAME already exists, deleting it first"
+            git tag -d $TAG_NAME
+            git push origin --delete $TAG_NAME || echo "Remote tag doesn't exist"
+          fi
+          
           git tag -a $TAG_NAME -m "Release ${NEW_VERSION}
 
           Professional Logging Library with Hexagonal Architecture
