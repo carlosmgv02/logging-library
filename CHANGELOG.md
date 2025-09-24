@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.3] - 2025-09-24
+
+### Changes
+- Unify workflows (#6)
+- Update logback-spring.xml (#5)
+- Refactor whole project (#4)
+- Merge pull request #2 from carlosmgv02/development
+- Update logback-spring.xml
+### Features
+- System validation with real connectivity checks
+- Hexagonal architecture implementation
+- Sensitive data filtering
+- OpenTelemetry tracing integration
+- ELK stack integration
+
+
 ## [0.0.2-SNAPSHOT] - 2025-09-24
 
 ### Changes
