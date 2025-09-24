@@ -18,6 +18,12 @@ outputs:
   reason:
     description: 'Reason for the decision'
     value: ${{ steps.check.outputs.reason }}
+  version-type:
+    description: 'Type of version increment (major, minor, patch)'
+    value: ${{ steps.check.outputs.version-type }}
+  next-version:
+    description: 'The next version number that would be released'
+    value: ${{ steps.check.outputs.next-version }}
 
 runs:
   using: "composite"
@@ -100,10 +106,71 @@ runs:
           echo "All changes are in documentation or CI files"
         fi
 
+        # Determine version increment type and calculate next version if release is needed
+        VERSION_TYPE="patch"
+        NEXT_VERSION=""
+        
+        if [ "$SHOULD_RELEASE" = "true" ]; then
+          # Get commit messages for conventional commit analysis
+          COMMITS=$(git log --oneline ${{ inputs.base-ref }}..${{ inputs.head-ref }})
+          echo "Analyzing commits for version type:"
+          echo "$COMMITS"
+
+          # Determine version type based on conventional commits
+          if echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|feature)(\(.+\))?!:"; then
+            VERSION_TYPE="major"
+            echo "Found breaking feature, using major version"
+          elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ .+!:"; then
+            VERSION_TYPE="major"
+            echo "Found breaking change, using major version"
+          elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|feature)(\(.+\))?:"; then
+            VERSION_TYPE="minor"
+            echo "Found feature, using minor version"
+          else
+            VERSION_TYPE="patch"
+            echo "No major/minor changes found, using patch version"
+          fi
+
+          # Calculate next version
+          if command -v mvn >/dev/null 2>&1; then
+            CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null || echo "0.0.1-SNAPSHOT")
+            BASE_VERSION=${CURRENT_VERSION%-SNAPSHOT}
+            
+            IFS='.' read -r -a version_parts <<< "$BASE_VERSION"
+            MAJOR=${version_parts[0]:-0}
+            MINOR=${version_parts[1]:-0}
+            PATCH=${version_parts[2]:-1}
+
+            case $VERSION_TYPE in
+              "major")
+                NEW_MAJOR=$((MAJOR + 1))
+                NEXT_VERSION="${NEW_MAJOR}.0.0"
+                ;;
+              "minor")
+                NEW_MINOR=$((MINOR + 1))
+                NEXT_VERSION="${MAJOR}.${NEW_MINOR}.0"
+                ;;
+              "patch"|*)
+                NEW_PATCH=$((PATCH + 1))
+                NEXT_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+                ;;
+            esac
+            
+            echo "Current version: $CURRENT_VERSION"
+            echo "Next version would be: $NEXT_VERSION"
+          fi
+        fi
+
         echo "should-release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
         echo "reason=$REASON" >> $GITHUB_OUTPUT
+        echo "version-type=$VERSION_TYPE" >> $GITHUB_OUTPUT
+        echo "next-version=$NEXT_VERSION" >> $GITHUB_OUTPUT
 
         echo ""
         echo "📋 Summary:"
         echo "Should create release: $SHOULD_RELEASE"
         echo "Reason: $REASON"
+        if [ "$SHOULD_RELEASE" = "true" ]; then
+          echo "Version type: $VERSION_TYPE"
+          echo "Next version: $NEXT_VERSION"
+        fi
