@@ -15,7 +15,7 @@ public class SensitiveDataProperties {
             "(?i)secret[\\s]*[:=][\\s]*\\S+",
             "(?i)key[\\s]*[:=][\\s]*\\S+",
             "(?i)authorization[\\s]*[:=][\\s]*\\S+",
-            "\\b\\d{16}\\b", // Credit card numbers
-            "\\b\\d{3}-\\d{2}-\\d{4}\\b" // SSN pattern
+            "\\b\\d{16}\\b",
+            "\\b\\d{3}-\\d{2}-\\d{4}\\b"
     );
 }
