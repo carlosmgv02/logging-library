@@ -92,6 +92,13 @@ jobs:
           mvn javadoc:javadoc
           mvn source:jar
 
+      - name: Publish to GitHub Packages
+        run: |
+          echo "Publishing SNAPSHOT to GitHub Packages..."
+          mvn deploy -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create snapshot tag
         id: snapshot_tag
         run: |
