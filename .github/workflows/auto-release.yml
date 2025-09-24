@@ -3,16 +3,6 @@ name: Auto Release
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'src/**'
-      - 'pom.xml'
-      - '**.java'
-      - '**.xml'
-      - '**.yaml'
-      - '**.yml'
-      - '!.github/**'
-      - '!**.md'
-      - '!.gitignore'
   workflow_dispatch:
     inputs:
       version_type:
@@ -78,11 +68,30 @@ jobs:
           echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $CURRENT_VERSION"
 
+      - name: Get comparison base for release check
+        id: comparison_base
+        run: |
+          # For auto-release, we want to check changes since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -n "$LAST_TAG" ]; then
+            echo "Using last tag as base: $LAST_TAG"
+            echo "base_ref=$LAST_TAG" >> $GITHUB_OUTPUT
+          else
+            # If no tags exist, use the event before or fallback
+            BASE_REF="${{ github.event.before }}"
+            if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "0000000000000000000000000000000000000000" ]; then
+              BASE_REF="HEAD~1"
+            fi
+            echo "No tags found, using: $BASE_REF"
+            echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check release relevance and determine version type
         id: release_check
         uses: ./.github/actions/check-release-relevance
         with:
-          base-ref: ${{ github.event.before || 'HEAD~1' }}
+          base-ref: ${{ steps.comparison_base.outputs.base_ref }}
           head-ref: ${{ github.sha }}
 
       - name: Set version increment type
@@ -98,6 +107,22 @@ jobs:
 
           echo "increment_type=$VERSION_TYPE" >> $GITHUB_OUTPUT
           echo "Version increment type: $VERSION_TYPE"
+
+      - name: Check if release is needed
+        run: |
+          SHOULD_RELEASE="${{ steps.release_check.outputs.should-release }}"
+          REASON="${{ steps.release_check.outputs.reason }}"
+          
+          echo "Release needed: $SHOULD_RELEASE"
+          echo "Reason: $REASON"
+          
+          if [ "$SHOULD_RELEASE" != "true" ]; then
+            echo "⏭️ Skipping release - no relevant changes found"
+            echo "Reason: $REASON"
+            exit 0
+          fi
+          
+          echo "✅ Proceeding with release"
 
       - name: Run tests and validation
         run: |
@@ -143,11 +168,29 @@ jobs:
 
           echo "NEW_VERSION=$NEW_VERSION"
           
-          # Update pom.xml with new version
+          # Update pom.xml with new release version (no SNAPSHOT)
           mvn versions:set -DnewVersion=$NEW_VERSION -DgenerateBackupPoms=false
           
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "New version: $NEW_VERSION"
+
+      - name: Prepare next development version
+        id: next_dev_version
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
+          
+          # Calculate next development version
+          IFS='.' read -r -a version_parts <<< "$NEW_VERSION"
+          MAJOR=${version_parts[0]}
+          MINOR=${version_parts[1]}
+          PATCH=${version_parts[2]}
+          
+          # Next patch version for development
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_DEV_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-SNAPSHOT"
+          
+          echo "next_dev_version=$NEXT_DEV_VERSION" >> $GITHUB_OUTPUT
+          echo "Next development version: $NEXT_DEV_VERSION"
 
       - name: Update changelog
         run: |
@@ -402,4 +445,31 @@ jobs:
           echo "- ✅ GitHub release created" >> $GITHUB_STEP_SUMMARY
           echo "- 🔄 Maven publication triggered" >> $GITHUB_STEP_SUMMARY
           echo "- 📋 Monitor: [Actions](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Update development branch with next version
+        run: |
+          NEXT_DEV_VERSION="${{ steps.next_dev_version.outputs.next_dev_version }}"
+          
+          echo "Updating development branch to next version: $NEXT_DEV_VERSION"
+          
+          # Switch to development branch
+          git fetch origin development
+          git checkout development
+          
+          # Update to next development version
+          mvn versions:set -DnewVersion=$NEXT_DEV_VERSION -DgenerateBackupPoms=false
+          
+          # Commit the version update
+          git add pom.xml
+          git commit -m "chore: bump development version to $NEXT_DEV_VERSION
+
+          Automatic version bump after release ${{ steps.new_version.outputs.new_version }}
+          
+          - Updated development version to $NEXT_DEV_VERSION
+          - Ready for next development cycle"
+          
+          # Push to development
+          git push origin development
+          
+          echo "✅ Development branch updated to $NEXT_DEV_VERSION"
           echo "- 📦 Verify: [Maven Central](https://central.sonatype.com/artifact/com.carlosmgv02/logging-library)" >> $GITHUB_STEP_SUMMARY
