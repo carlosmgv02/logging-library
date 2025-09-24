@@ -258,19 +258,6 @@
         </resources>
     </build>
 
-    <distributionManagement>
-        <repository>
-            <id>github</id>
-            <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/carlosmgv02/logging-library</url>
-        </repository>
-        <snapshotRepository>
-            <id>github</id>
-            <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/carlosmgv02/logging-library</url>
-        </snapshotRepository>
-    </distributionManagement>
-
     <profiles>
         <!-- GitHub Packages Profile -->
         <profile>
@@ -278,18 +265,6 @@
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
-            <distributionManagement>
-                <repository>
-                    <id>github</id>
-                    <name>GitHub Packages</name>
-                    <url>https://maven.pkg.github.com/carlosmgv02/logging-library</url>
-                </repository>
-                <snapshotRepository>
-                    <id>github</id>
-                    <name>GitHub Packages</name>
-                    <url>https://maven.pkg.github.com/carlosmgv02/logging-library</url>
-                </snapshotRepository>
-            </distributionManagement>
             <build>
                 <plugins>
                     <!-- Source Plugin -->
@@ -331,18 +306,6 @@
         <!-- Maven Central Profile -->
         <profile>
             <id>central</id>
-            <distributionManagement>
-                <repository>
-                    <id>central</id>
-                    <name>Central Repository OSSRH</name>
-                    <url>https://central.sonatype.com/api/v1/publisher/upload</url>
-                </repository>
-                <snapshotRepository>
-                    <id>central</id>
-                    <name>Central Repository OSSRH</name>
-                    <url>https://central.sonatype.com/api/v1/publisher/upload</url>
-                </snapshotRepository>
-            </distributionManagement>
             <build>
                 <plugins>
                     <!-- Source Plugin -->
