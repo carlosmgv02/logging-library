@@ -1,8 +1,49 @@
+spring:
+  application:
+    name: logging-library
+
+# Logging Library Configuration
+logging:
+  library:
+    enabled: true
+    metrics-enabled: true
+    trace-enabled: true
+    service-name: ${spring.application.name}
+    buffer-size: 1000
+    flush-interval-ms: 5000
+    log-level: INFO
+    validation:
+      enabled: true
+      strict-mode: false
+      fail-on-logstash-connection-error: false
+      fail-on-connection-warnings: false
+      validation-delay-ms: 2000
+
+  sensitive-data:
+    enabled: true
+    patterns:
+      - "(?i)password[\\s]*[:=][\\s]*\\S+"
+      - "(?i)token[\\s]*[:=][\\s]*\\S+"
+      - "(?i)secret[\\s]*[:=][\\s]*\\S+"
+      - "(?i)key[\\s]*[:=][\\s]*\\S+"
+      - "(?i)authorization[\\s]*[:=][\\s]*\\S+"
+      - "\\b\\d{16}\\b"  # Credit card numbers
+      - "\\b\\d{3}-\\d{2}-\\d{4}\\b"  # SSN pattern
+
+  demo:
+    enabled: false  # Enable for testing
+
+# OpenTelemetry & Micrometer Configuration
 management:
   tracing:
     enabled: true
+    sampling:
+      probability: 1.0
   metrics:
     export:
       otlp:
         enabled: true
         endpoint: http://localhost:4317
+    web:
+      server:
+        auto-time-requests: true
