@@ -1,4 +1,4 @@
-name: Snapshot Release
+name: Development Snapshot Release
 
 on:
   push:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   snapshot-release:
-    name: Create Snapshot Release
+    name: Create Development Snapshot
     runs-on: ubuntu-latest
 
     steps:
@@ -30,19 +30,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
 
       - name: Configure Git
         run: |
@@ -63,127 +50,132 @@ jobs:
           echo "Reason: ${{ steps.check_release.outputs.reason }}"
           exit 0
 
-      - name: Get current version and ensure SNAPSHOT
-        id: current_version
+      - name: Manage SNAPSHOT version
+        id: snapshot_version
         run: |
+          # Get current version
           CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          echo "Current version: $CURRENT_VERSION"
+          echo "Current version in development: $CURRENT_VERSION"
           
-          # Ensure version ends with -SNAPSHOT
+          # Ensure it's a SNAPSHOT version
           if [[ ! "$CURRENT_VERSION" == *-SNAPSHOT ]]; then
-            # Convert to SNAPSHOT version
-            SNAPSHOT_VERSION="${CURRENT_VERSION}-SNAPSHOT"
+            echo "❌ Development branch must have SNAPSHOT version, found: $CURRENT_VERSION"
+            
+            # Convert to SNAPSHOT by incrementing patch version
+            BASE_VERSION=${CURRENT_VERSION}
+            IFS='.' read -r -a version_parts <<< "$BASE_VERSION"
+            MAJOR=${version_parts[0]}
+            MINOR=${version_parts[1]}
+            PATCH=${version_parts[2]}
+            
+            # Increment patch for next development cycle
+            NEW_PATCH=$((PATCH + 1))
+            SNAPSHOT_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}-SNAPSHOT"
+            
             echo "Converting to SNAPSHOT version: $SNAPSHOT_VERSION"
             mvn versions:set -DnewVersion=$SNAPSHOT_VERSION -DgenerateBackupPoms=false
+            
+            # Commit the version change
+            git add pom.xml
+            git commit -m "chore: convert to SNAPSHOT version $SNAPSHOT_VERSION
+
+            Development branch should always use SNAPSHOT versions.
+            Converted from $CURRENT_VERSION to $SNAPSHOT_VERSION."
+            
+            git push origin development
+            
             CURRENT_VERSION=$SNAPSHOT_VERSION
           fi
           
-          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "snapshot_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Using SNAPSHOT version: $CURRENT_VERSION"
 
-      - name: Run tests
-        run: |
-          echo "Running tests before snapshot release..."
-          mvn clean test
+      - name: Build and Test SNAPSHOT
+        uses: ./.github/actions/build-and-test
+        with:
+          java-version: '17'
+          run-quality-checks: 'true'
+          skip-tests: 'false'
 
-      - name: Build and package
-        run: |
-          echo "Building snapshot artifacts..."
-          mvn clean package -DskipTests
-          mvn javadoc:javadoc
-          mvn source:jar
-
-      - name: Publish to GitHub Packages
+      - name: Publish SNAPSHOT to GitHub Packages
         run: |
           echo "Publishing SNAPSHOT to GitHub Packages..."
           mvn deploy -DskipTests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create snapshot tag
-        id: snapshot_tag
+      - name: Create snapshot tag and pre-release
+        id: create_prerelease
         run: |
-          VERSION="${{ steps.current_version.outputs.version }}"
+          SNAPSHOT_VERSION="${{ steps.snapshot_version.outputs.snapshot_version }}"
           TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-          TAG_NAME="snapshot-${VERSION}-${TIMESTAMP}"
+          TAG_NAME="snapshot-${SNAPSHOT_VERSION}-${TIMESTAMP}"
           
           echo "Creating snapshot tag: $TAG_NAME"
-          git tag -a $TAG_NAME -m "Snapshot release ${VERSION} - ${TIMESTAMP}
-
-          Development snapshot with latest changes from development branch.
           
-          Features and changes included:
-          - Latest development code
-          - All tests passing
-          - Ready for testing and integration
-          
-          Note: This is a development snapshot, not a production release."
-
+          # Create lightweight tag (not annotated to avoid conflicts)
+          git tag $TAG_NAME
           git push origin $TAG_NAME
           
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Create GitHub pre-release
+          gh release create $TAG_NAME \
+            --title "📦 Development Snapshot $SNAPSHOT_VERSION" \
+            --notes "## 🚧 Development Snapshot Release
 
-      - name: Create GitHub pre-release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.snapshot_tag.outputs.tag_name }}
-          release_name: "📦 Snapshot ${{ steps.snapshot_tag.outputs.version }}"
-          body: |
-            ## 🚧 Development Snapshot Release
-            
-            This is an automated snapshot release from the `development` branch.
-            
-            ### 📋 What's New
-            ${{ steps.check_release.outputs.reason }}
-            
-            ### 🔍 Changes Since Last Release
-            - Latest development code
-            - All automated tests passing
-            - Ready for integration testing
-            
-            ### ⚠️ Important Notes
-            - **This is a SNAPSHOT version** - not recommended for production
-            - Use for testing and development only
-            - Production releases are created from the `master` branch
-            
-            ### 📦 Artifacts
-            - JAR file with latest code
-            - Source code JAR
-            - Javadoc documentation
-            
-            ### 🔗 Installation
-            ```xml
-            <dependency>
-                <groupId>com.carlosmgv02</groupId>
-                <artifactId>logging-library</artifactId>
-                <version>${{ steps.snapshot_tag.outputs.version }}</version>
-            </dependency>
-            ```
-          draft: false
-          prerelease: true
-
-      - name: Upload snapshot artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapshot-artifacts
-          path: |
+          This is an automated snapshot release from the \`development\` branch.
+          
+          ### 📋 Changes
+          ${{ steps.check_release.outputs.reason }}
+          
+          ### ⚠️ Important Notes
+          - **SNAPSHOT version** - for development and testing only
+          - Not recommended for production use
+          - May contain unstable features
+          - Production releases are created from \`master\` branch
+          
+          ### 📦 Installation
+          \`\`\`xml
+          <dependency>
+              <groupId>com.carlosmgv02</groupId>
+              <artifactId>logging-library</artifactId>
+              <version>$SNAPSHOT_VERSION</version>
+          </dependency>
+          \`\`\`
+          
+          ### 🔗 GitHub Packages
+          This version is available in GitHub Packages. See [CONSUMER_SETUP.md](.github/CONSUMER_SETUP.md) for configuration instructions." \
+            --prerelease \
             target/*.jar
-            target/site/apidocs/
-          retention-days: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate snapshot summary
         run: |
-          echo "## 📦 Snapshot Release Created" >> $GITHUB_STEP_SUMMARY
+          SNAPSHOT_VERSION="${{ steps.snapshot_version.outputs.snapshot_version }}"
+          
+          echo "## 📦 Development Snapshot Created" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Release Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version:** \`${{ steps.snapshot_tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag:** \`${{ steps.snapshot_tag.outputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Type:** Development Snapshot (Pre-release)" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Snapshot Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** \`$SNAPSHOT_VERSION\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** \`development\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type:** Development Snapshot (Pre-release)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Published:** GitHub Packages ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Quality Checks" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tests:** ✅ All passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build:** ✅ Successful" >> $GITHUB_STEP_SUMMARY
+          echo "- **Quality Analysis:** ✅ Completed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Test the snapshot in your development environment" >> $GITHUB_STEP_SUMMARY
-          echo "2. When ready, merge \`development\` → \`master\` for production release" >> $GITHUB_STEP_SUMMARY
-          echo "3. Production release will be automatically created on merge" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Test the snapshot** in your development environment" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Configure your project** using [CONSUMER_SETUP.md](.github/CONSUMER_SETUP.md)" >> $GITHUB_STEP_SUMMARY
+          echo "3. **When ready**, merge \`development\` → \`master\` for production release" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Installation" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`xml" >> $GITHUB_STEP_SUMMARY
+          echo "<dependency>" >> $GITHUB_STEP_SUMMARY
+          echo "    <groupId>com.carlosmgv02</groupId>" >> $GITHUB_STEP_SUMMARY
+          echo "    <artifactId>logging-library</artifactId>" >> $GITHUB_STEP_SUMMARY
+          echo "    <version>$SNAPSHOT_VERSION</version>" >> $GITHUB_STEP_SUMMARY
+          echo "</dependency>" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

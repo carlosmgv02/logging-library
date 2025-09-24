@@ -1,0 +1,154 @@
+name: 'Build and Test'
+description: 'Shared action for building, testing and validating the logging library'
+
+inputs:
+  java-version:
+    description: 'Java version to use'
+    required: false
+    default: '17'
+  run-quality-checks:
+    description: 'Whether to run quality checks (SpotBugs, PMD, Checkstyle)'
+    required: false
+    default: 'true'
+  skip-tests:
+    description: 'Whether to skip tests'
+    required: false
+    default: 'false'
+
+outputs:
+  build-success:
+    description: 'Whether the build was successful'
+    value: ${{ steps.build.outputs.success }}
+  test-results:
+    description: 'Test results summary'
+    value: ${{ steps.test.outputs.summary }}
+  artifact-path:
+    description: 'Path to built artifacts'
+    value: 'target'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up JDK ${{ inputs.java-version }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Validate POM
+      shell: bash
+      run: |
+        echo "Validating Maven POM..."
+        mvn validate
+        echo "✅ POM validation successful"
+
+    - name: Compile project
+      shell: bash
+      run: |
+        echo "Compiling project..."
+        mvn clean compile
+        echo "✅ Compilation successful"
+
+    - name: Run tests
+      id: test
+      if: inputs.skip-tests != 'true'
+      shell: bash
+      run: |
+        echo "Running tests..."
+        mvn test
+        
+        # Generate test summary
+        if [ -f "target/surefire-reports/TEST-*.xml" ]; then
+          TOTAL_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -h "tests=" {} \; | sed 's/.*tests="\([0-9]*\)".*/\1/' | awk '{sum+=$1} END {print sum+0}')
+          FAILED_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -h "failures=" {} \; | sed 's/.*failures="\([0-9]*\)".*/\1/' | awk '{sum+=$1} END {print sum+0}')
+          ERRORS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -h "errors=" {} \; | sed 's/.*errors="\([0-9]*\)".*/\1/' | awk '{sum+=$1} END {print sum+0}')
+          
+          PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS - ERRORS))
+          
+          echo "summary=Total: $TOTAL_TESTS, Passed: $PASSED_TESTS, Failed: $FAILED_TESTS, Errors: $ERRORS" >> $GITHUB_OUTPUT
+          
+          if [ "$FAILED_TESTS" -eq 0 ] && [ "$ERRORS" -eq 0 ]; then
+            echo "✅ All tests passed ($TOTAL_TESTS tests)"
+          else
+            echo "❌ Tests failed: $FAILED_TESTS failures, $ERRORS errors"
+            exit 1
+          fi
+        else
+          echo "⚠️ No test results found"
+          echo "summary=No test results found" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run quality checks
+      if: inputs.run-quality-checks == 'true'
+      shell: bash
+      run: |
+        echo "Running code quality checks..."
+        
+        # Compile with quality profile
+        mvn compile -Pquality
+        
+        # Run quality tools (non-blocking to collect all results)
+        echo "Running SpotBugs..."
+        mvn -Pquality spotbugs:check || echo "SpotBugs found issues"
+        
+        echo "Running PMD..."
+        mvn -Pquality pmd:check || echo "PMD found issues"
+        
+        echo "Running Checkstyle..."
+        mvn -Pquality checkstyle:check || echo "Checkstyle found issues"
+        
+        echo "✅ Quality checks completed (warnings may exist)"
+
+    - name: Generate coverage report
+      if: inputs.skip-tests != 'true'
+      shell: bash
+      run: |
+        echo "Generating coverage report..."
+        mvn jacoco:report
+        echo "✅ Coverage report generated"
+
+    - name: Package artifacts
+      id: build
+      shell: bash
+      run: |
+        echo "Packaging artifacts..."
+        mvn package -DskipTests
+        
+        # Generate additional artifacts
+        mvn javadoc:javadoc
+        mvn source:jar
+        
+        # Verify artifacts exist
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        
+        if [ -f "target/logging-library-${VERSION}.jar" ]; then
+          echo "✅ Main JAR created: logging-library-${VERSION}.jar"
+          echo "success=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Main JAR not found"
+          echo "success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        # List all artifacts
+        echo "📦 Generated artifacts:"
+        ls -la target/*.jar || echo "No JAR files found"
+
+    - name: Upload build artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ github.run_id }}
+        path: |
+          target/*.jar
+          target/site/jacoco/
+          target/site/apidocs/
+          target/surefire-reports/
+        retention-days: 7

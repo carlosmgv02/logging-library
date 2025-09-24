@@ -1,4 +1,4 @@
-name: Auto Release
+name: Production Release
 
 on:
   push:
@@ -8,25 +8,22 @@ on:
       version_type:
         description: 'Version increment type'
         required: true
-        default: 'patch'
         type: choice
         options:
           - patch
           - minor
           - major
+        default: 'patch'
 
 permissions:
   contents: write
-  pull-requests: write
   packages: write
-  issues: write
+  pull-requests: write
 
 jobs:
-  auto-release:
+  production-release:
+    name: Create Production Release
     runs-on: ubuntu-latest
-
-    # Only run if commit message doesn't contain version bump
-    if: "!contains(github.event.head_commit.message, 'chore: bump version')"
 
     steps:
       - name: Checkout code
@@ -35,251 +32,193 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check release relevance (for manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        id: release_relevance
-        uses: ./.github/actions/check-release-relevance
-        with:
-          base-ref: 'origin/master'
-          head-ref: 'HEAD'
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-
       - name: Configure Git
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-      - name: Get current version
-        id: current_version
-        run: |
-          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "Current version: $CURRENT_VERSION"
-
-      - name: Get comparison base for release check
-        id: comparison_base
-        run: |
-          # For auto-release, we want to check changes since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          
-          if [ -n "$LAST_TAG" ]; then
-            echo "Using last tag as base: $LAST_TAG"
-            echo "base_ref=$LAST_TAG" >> $GITHUB_OUTPUT
-          else
-            # If no tags exist, use the event before or fallback
-            BASE_REF="${{ github.event.before }}"
-            if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "0000000000000000000000000000000000000000" ]; then
-              BASE_REF="HEAD~1"
-            fi
-            echo "No tags found, using: $BASE_REF"
-            echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check release relevance and determine version type
+      - name: Check if release is needed
         id: release_check
         uses: ./.github/actions/check-release-relevance
         with:
-          base-ref: ${{ steps.comparison_base.outputs.base_ref }}
+          base-ref: ${{ github.event.before && github.event.before != '0000000000000000000000000000000000000000' && github.event.before || 'HEAD~1' }}
           head-ref: ${{ github.sha }}
 
-      - name: Set version increment type
-        id: version_type
+      - name: Skip if no relevant changes (except manual)
+        if: github.event_name != 'workflow_dispatch' && steps.release_check.outputs.should-release != 'true'
+        run: |
+          echo "⏭️ Skipping release - no relevant changes found"
+          echo "Reason: ${{ steps.release_check.outputs.reason }}"
+          exit 0
+
+      - name: Determine version increment
+        id: version_info
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             VERSION_TYPE="${{ github.event.inputs.version_type }}"
-            echo "Manual trigger: Using $VERSION_TYPE"
+            echo "Manual trigger: Using $VERSION_TYPE increment"
           else
             VERSION_TYPE="${{ steps.release_check.outputs.version-type }}"
-            echo "Auto-detected version type: $VERSION_TYPE"
-          fi
-
-          echo "increment_type=$VERSION_TYPE" >> $GITHUB_OUTPUT
-          echo "Version increment type: $VERSION_TYPE"
-
-      - name: Check if release is needed
-        run: |
-          SHOULD_RELEASE="${{ steps.release_check.outputs.should-release }}"
-          REASON="${{ steps.release_check.outputs.reason }}"
-          
-          echo "Release needed: $SHOULD_RELEASE"
-          echo "Reason: $REASON"
-          
-          if [ "$SHOULD_RELEASE" != "true" ]; then
-            echo "⏭️ Skipping release - no relevant changes found"
-            echo "Reason: $REASON"
-            exit 0
+            echo "Auto-detected: Using $VERSION_TYPE increment"
           fi
           
-          echo "✅ Proceeding with release"
-
-      - name: Run tests and validation
-        run: |
-          echo "Running tests..."
-          mvn clean test
-          echo "Running validation..."
-          mvn verify
-
-      - name: Increment version
-        id: new_version
-        run: |
-          VERSION_TYPE="${{ steps.version_type.outputs.increment_type }}"
-          echo "Incrementing version by: $VERSION_TYPE"
-
-          # Get current version
+          # Get current version from master (should be a release version, not SNAPSHOT)
           CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          echo "Current version: $CURRENT_VERSION"
-
-          # Remove -SNAPSHOT suffix if present
+          echo "Current master version: $CURRENT_VERSION"
+          
+          # If it's a SNAPSHOT, remove the SNAPSHOT suffix for base calculation
           BASE_VERSION=${CURRENT_VERSION%-SNAPSHOT}
           
-          # Split version into parts
+          # Calculate new release version
           IFS='.' read -r -a version_parts <<< "$BASE_VERSION"
           MAJOR=${version_parts[0]}
           MINOR=${version_parts[1]}
           PATCH=${version_parts[2]}
-
-          # Increment based on type
+          
           case $VERSION_TYPE in
             "major")
               NEW_MAJOR=$((MAJOR + 1))
-              NEW_VERSION="${NEW_MAJOR}.0.0"
+              RELEASE_VERSION="${NEW_MAJOR}.0.0"
               ;;
             "minor")
               NEW_MINOR=$((MINOR + 1))
-              NEW_VERSION="${MAJOR}.${NEW_MINOR}.0"
+              RELEASE_VERSION="${MAJOR}.${NEW_MINOR}.0"
               ;;
             "patch"|*)
               NEW_PATCH=$((PATCH + 1))
-              NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+              RELEASE_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
               ;;
           esac
-
-          echo "NEW_VERSION=$NEW_VERSION"
-          
-          # Update pom.xml with new release version (no SNAPSHOT)
-          mvn versions:set -DnewVersion=$NEW_VERSION -DgenerateBackupPoms=false
-          
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "New version: $NEW_VERSION"
-
-      - name: Prepare next development version
-        id: next_dev_version
-        run: |
-          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
           
           # Calculate next development version
-          IFS='.' read -r -a version_parts <<< "$NEW_VERSION"
-          MAJOR=${version_parts[0]}
-          MINOR=${version_parts[1]}
-          PATCH=${version_parts[2]}
+          IFS='.' read -r -a rel_parts <<< "$RELEASE_VERSION"
+          REL_MAJOR=${rel_parts[0]}
+          REL_MINOR=${rel_parts[1]}
+          REL_PATCH=${rel_parts[2]}
+          NEXT_DEV_PATCH=$((REL_PATCH + 1))
+          NEXT_DEV_VERSION="${REL_MAJOR}.${REL_MINOR}.${NEXT_DEV_PATCH}-SNAPSHOT"
           
-          # Next patch version for development
-          NEXT_PATCH=$((PATCH + 1))
-          NEXT_DEV_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-SNAPSHOT"
-          
+          echo "version_type=$VERSION_TYPE" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
           echo "next_dev_version=$NEXT_DEV_VERSION" >> $GITHUB_OUTPUT
-          echo "Next development version: $NEXT_DEV_VERSION"
+          
+          echo "📋 Version Plan:"
+          echo "  Current: $CURRENT_VERSION"
+          echo "  Release: $RELEASE_VERSION ($VERSION_TYPE increment)"
+          echo "  Next Dev: $NEXT_DEV_VERSION"
 
-      - name: Update changelog
+      - name: Update to release version
         run: |
-          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          TODAY=$(date +"%Y-%m-%d")
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          
+          echo "Updating to release version: $RELEASE_VERSION"
+          mvn versions:set -DnewVersion=$RELEASE_VERSION -DgenerateBackupPoms=false
+          
+          echo "✅ Version updated to $RELEASE_VERSION"
 
+      - name: Build and Test Release
+        uses: ./.github/actions/build-and-test
+        with:
+          java-version: '17'
+          run-quality-checks: 'true'
+          skip-tests: 'false'
+
+      - name: Update CHANGELOG
+        run: |
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          VERSION_TYPE="${{ steps.version_info.outputs.version_type }}"
+          TODAY=$(date +"%Y-%m-%d")
+          
           # Create or update CHANGELOG.md
           if [ ! -f CHANGELOG.md ]; then
             echo "# Changelog" > CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-
+          
           # Prepare changelog entry
           TEMP_CHANGELOG=$(mktemp)
           echo "# Changelog" > $TEMP_CHANGELOG
           echo "" >> $TEMP_CHANGELOG
-          echo "## [${NEW_VERSION}] - ${TODAY}" >> $TEMP_CHANGELOG
+          echo "## [${RELEASE_VERSION}] - ${TODAY}" >> $TEMP_CHANGELOG
           echo "" >> $TEMP_CHANGELOG
-
-          # Get commits since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$LAST_TAG" ]; then
-            echo "### Changes" >> $TEMP_CHANGELOG
-            git log $LAST_TAG..HEAD --oneline --pretty=format:"- %s" >> $TEMP_CHANGELOG
-          else
-            echo "### Changes" >> $TEMP_CHANGELOG
-            echo "- Initial release" >> $TEMP_CHANGELOG
-          fi
-
+          
+          # Add version type information
+          case $VERSION_TYPE in
+            "major")
+              echo "### 🚀 Major Release - Breaking Changes" >> $TEMP_CHANGELOG
+              ;;
+            "minor")
+              echo "### ✨ Minor Release - New Features" >> $TEMP_CHANGELOG
+              ;;
+            "patch")
+              echo "### 🐛 Patch Release - Bug Fixes" >> $TEMP_CHANGELOG
+              ;;
+          esac
+          
           echo "" >> $TEMP_CHANGELOG
-          echo "### Features" >> $TEMP_CHANGELOG
+          echo "### Features & Improvements" >> $TEMP_CHANGELOG
+          echo "- Professional logging library with hexagonal architecture" >> $TEMP_CHANGELOG
           echo "- System validation with real connectivity checks" >> $TEMP_CHANGELOG
-          echo "- Hexagonal architecture implementation" >> $TEMP_CHANGELOG
-          echo "- Sensitive data filtering" >> $TEMP_CHANGELOG
+          echo "- Sensitive data filtering with configurable patterns" >> $TEMP_CHANGELOG
           echo "- OpenTelemetry tracing integration" >> $TEMP_CHANGELOG
-          echo "- ELK stack integration" >> $TEMP_CHANGELOG
+          echo "- ELK stack integration for centralized logging" >> $TEMP_CHANGELOG
           echo "" >> $TEMP_CHANGELOG
-
-          # Add existing changelog (skipping first line)
+          
+          # Add existing changelog content
           if [ -f CHANGELOG.md ]; then
             tail -n +2 CHANGELOG.md >> $TEMP_CHANGELOG
           fi
-
+          
           mv $TEMP_CHANGELOG CHANGELOG.md
+          
+          echo "✅ CHANGELOG updated for version $RELEASE_VERSION"
 
-      - name: Commit version bump
+      - name: Commit release version
         run: |
-          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          VERSION_TYPE="${{ steps.version_info.outputs.version_type }}"
+          
           git add pom.xml CHANGELOG.md
-          git commit -m "chore: bump version to ${NEW_VERSION}
+          git commit -m "chore: release version $RELEASE_VERSION
 
-          Auto-generated version bump:
-          - Version: ${NEW_VERSION}
-          - Type: ${{ steps.version_type.outputs.increment_type }}
-          - Triggered by: ${{ github.event_name }}"
+          Production release $RELEASE_VERSION ($VERSION_TYPE increment)
+          
+          - Updated version to $RELEASE_VERSION
+          - Updated CHANGELOG.md
+          - All tests passing
+          - Quality checks completed"
 
-      - name: Create and push tag
+      - name: Create release tag
         run: |
-          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          TAG_NAME="v${NEW_VERSION}"
-
-          echo "Creating tag: $TAG_NAME"
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          TAG_NAME="v${RELEASE_VERSION}"
           
-          # Check if tag already exists
-          if git tag -l | grep -q "^${TAG_NAME}$"; then
-            echo "Tag $TAG_NAME already exists, deleting it first"
-            git tag -d $TAG_NAME
-            git push origin --delete $TAG_NAME || echo "Remote tag doesn't exist"
-          fi
+          echo "Creating release tag: $TAG_NAME"
           
-          git tag -a $TAG_NAME -m "Release ${NEW_VERSION}
+          git tag -a $TAG_NAME -m "Release ${RELEASE_VERSION}
 
-          Professional Logging Library with Hexagonal Architecture
-
-          Features:
-          - System validation with connectivity checks
-          - Sensitive data filtering
-          - OpenTelemetry tracing integration
-          - ELK stack integration
-          - Async processing capabilities
-
-          Version: ${NEW_VERSION}
-          Type: ${{ steps.version_type.outputs.increment_type }}
-          Commit: ${{ github.sha }}"
-
-          echo "Pushing changes and tag..."
+          Professional Logging Library ${RELEASE_VERSION}
+          
+          🏗️ Enterprise Features:
+          - Hexagonal Architecture with domain-driven design
+          - System Validation with real connectivity checks
+          - Sensitive Data Filtering with configurable patterns
+          - OpenTelemetry Integration for distributed tracing
+          - ELK Stack Integration for centralized logging
+          
+          📦 Installation:
+          <dependency>
+              <groupId>com.carlosmgv02</groupId>
+              <artifactId>logging-library</artifactId>
+              <version>${RELEASE_VERSION}</version>
+          </dependency>"
+          
+          echo "Pushing tag and changes..."
           git push origin ${{ github.ref_name }}
           git push origin $TAG_NAME
+          
+          echo "✅ Tag $TAG_NAME created and pushed"
 
       - name: Publish to GitHub Packages
         run: |
@@ -289,177 +228,63 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const newVersion = '${{ steps.new_version.outputs.new_version }}';
-            const tagName = `v${newVersion}`;
-            const versionType = '${{ steps.version_type.outputs.increment_type }}';
-
-            // Read changelog for this version
-            let changelogContent = '';
-            try {
-              const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
-              const lines = changelog.split('\n');
-              let capturing = false;
-              let capturedLines = [];
-
-              for (const line of lines) {
-                if (line.startsWith(`## [${newVersion}]`)) {
-                  capturing = true;
-                  continue;
-                }
-                if (capturing && line.startsWith('## [')) {
-                  break;
-                }
-                if (capturing && line.trim()) {
-                  capturedLines.push(line);
-                }
-              }
-
-              changelogContent = capturedLines.join('\n').trim();
-            } catch (error) {
-              console.log('Could not read changelog:', error.message);
-            }
-
-            const releaseNotes = `## 🚀 Professional Logging Library ${newVersion}
-
-            ${changelogContent || 'Auto-generated release with enhanced logging capabilities'}
-
-            ### 🏗️ Enterprise Features
-            - **Hexagonal Architecture** with domain-driven design
-            - **System Validation** with real connectivity checks
-            - **Sensitive Data Filtering** with configurable patterns
-            - **OpenTelemetry Integration** for distributed tracing
-            - **ELK Stack Integration** for centralized logging
-
-            ### 📦 Installation
-
-            #### Maven
-            \`\`\`xml
-            <dependency>
-                <groupId>com.carlosmgv02</groupId>
-                <artifactId>logging-library</artifactId>
-                <version>${newVersion}</version>
-            </dependency>
-            \`\`\`
-
-            #### Gradle
-            \`\`\`gradle
-            implementation 'com.carlosmgv02:logging-library:${newVersion}'
-            \`\`\`
-
-            ### ⚙️ Configuration
-            \`\`\`yaml
-            logging:
-              library:
-                enabled: true
-                validation:
-                  enabled: true
-                  fail-on-logstash-connection-error: false
-            \`\`\`
-
-            ---
-
-            **Release Type:** ${versionType}
-            **Auto-generated:** This release was automatically created from commits to ${context.ref.replace('refs/heads/', '')} branch.
-
-            This release will be automatically published to Maven Central and GitHub Packages via GitHub Actions.`;
-
-            try {
-              const { data: release } = await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tagName,
-                name: `Professional Logging Library ${newVersion}`,
-                body: releaseNotes,
-                draft: false,
-                prerelease: false
-              });
-
-              console.log(`✅ Created release: ${release.html_url}`);
-              console.log(`Release ID: ${release.id}`);
-
-            } catch (createError) {
-              console.log(`❌ Failed to create release: ${createError.message}`);
-              if (createError.message && createError.message.includes('already_exists')) {
-                console.log('Release may already exist - checking...');
-                try {
-                  const { data: existingRelease } = await github.rest.repos.getReleaseByTag({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    tag: tagName
-                  });
-                  console.log(`Found existing release: ${existingRelease.html_url}`);
-                } catch (checkError) {
-                  throw createError;
-                }
-              } else {
-                throw createError;
-              }
-            }
-
-      - name: Trigger Maven Publication
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const newVersion = '${{ steps.new_version.outputs.new_version }}';
-            const tagName = `v${newVersion}`;
-
-            console.log('🚀 Triggering Maven publication workflow...');
-            console.log(`Version: ${newVersion}, Tag: ${tagName}`);
-
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            try {
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'publish.yml',
-                ref: context.ref.replace('refs/heads/', ''),
-                inputs: {
-                  version: 'current'
-                }
-              });
-
-              console.log('✅ Maven publication workflow triggered successfully');
-            } catch (error) {
-              console.log(`⚠️  Could not trigger publication workflow: ${error.message}`);
-              console.log('Release event should trigger it automatically');
-            }
-
-      - name: Summary
         run: |
-          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          VERSION_TYPE="${{ steps.version_type.outputs.increment_type }}"
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          VERSION_TYPE="${{ steps.version_info.outputs.version_type }}"
+          TAG_NAME="v${RELEASE_VERSION}"
+          
+          # Read changelog content for this version
+          CHANGELOG_CONTENT=""
+          if [ -f CHANGELOG.md ]; then
+            CHANGELOG_CONTENT=$(sed -n "/## \[${RELEASE_VERSION}\]/,/## \[/p" CHANGELOG.md | sed '$ d' | tail -n +2)
+          fi
+          
+          gh release create $TAG_NAME \
+            --title "🚀 Professional Logging Library ${RELEASE_VERSION}" \
+            --notes "## 🚀 Professional Logging Library ${RELEASE_VERSION}
 
-          echo "## 🎉 Auto-Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Library:** Professional Logging Library" >> $GITHUB_STEP_SUMMARY
-          echo "- **New Version:** ${NEW_VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version Type:** ${VERSION_TYPE}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag Created:** v${NEW_VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Release:** [View Release](https://github.com/${{ github.repository }}/releases/tag/v${NEW_VERSION})" >> $GITHUB_STEP_SUMMARY
-          echo "- **Maven Publication:** Triggered automatically" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Version bumped in pom.xml" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Tag created and pushed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ GitHub release created" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔄 Maven publication triggered" >> $GITHUB_STEP_SUMMARY
-          echo "- 📋 Monitor: [Actions](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
+          ${CHANGELOG_CONTENT:-Auto-generated release with enhanced logging capabilities}
 
-      - name: Update development branch with next version
+          ### 🏗️ Enterprise Features
+          - **Hexagonal Architecture** with domain-driven design
+          - **System Validation** with real connectivity checks  
+          - **Sensitive Data Filtering** with configurable patterns
+          - **OpenTelemetry Integration** for distributed tracing
+          - **ELK Stack Integration** for centralized logging
+
+          ### 📦 Installation
+
+          #### Maven
+          \`\`\`xml
+          <dependency>
+              <groupId>com.carlosmgv02</groupId>
+              <artifactId>logging-library</artifactId>
+              <version>${RELEASE_VERSION}</version>
+          </dependency>
+          \`\`\`
+
+          ### 🔧 Configuration
+          See [CONSUMER_SETUP.md](.github/CONSUMER_SETUP.md) for GitHub Packages setup instructions.
+
+          ### 📚 Documentation
+          - [README.md](README.md) - Complete usage guide
+          - [CICD_ARCHITECTURE.md](.github/CICD_ARCHITECTURE.md) - CI/CD pipeline documentation
+          - [Javadoc](https://github.com/carlosmgv02/logging-library/releases/download/${TAG_NAME}/logging-library-${RELEASE_VERSION}-javadoc.jar) - API documentation
+
+          ---
+          **Full Changelog:** [View Changes](https://github.com/carlosmgv02/logging-library/compare/v$(git describe --tags --abbrev=0 HEAD^)...${TAG_NAME})" \
+            target/*.jar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update development branch
         run: |
-          NEXT_DEV_VERSION="${{ steps.next_dev_version.outputs.next_dev_version }}"
+          NEXT_DEV_VERSION="${{ steps.version_info.outputs.next_dev_version }}"
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
           
           echo "Updating development branch to next version: $NEXT_DEV_VERSION"
           
-          # Switch to development branch
+          # Fetch and checkout development
           git fetch origin development
           git checkout development
           
@@ -470,7 +295,7 @@ jobs:
           git add pom.xml
           git commit -m "chore: bump development version to $NEXT_DEV_VERSION
 
-          Automatic version bump after release ${{ steps.new_version.outputs.new_version }}
+          Automatic version bump after release $RELEASE_VERSION
           
           - Updated development version to $NEXT_DEV_VERSION
           - Ready for next development cycle"
@@ -479,4 +304,36 @@ jobs:
           git push origin development
           
           echo "✅ Development branch updated to $NEXT_DEV_VERSION"
-          echo "- 📦 Verify: [Maven Central](https://central.sonatype.com/artifact/com.carlosmgv02/logging-library)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate release summary
+        run: |
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          VERSION_TYPE="${{ steps.version_info.outputs.version_type }}"
+          NEXT_DEV_VERSION="${{ steps.version_info.outputs.next_dev_version }}"
+          
+          echo "## 🎉 Production Release Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Release Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** \`$RELEASE_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type:** $VERSION_TYPE release" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`v$RELEASE_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Published:** GitHub Packages ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release:** [View Release](https://github.com/${{ github.repository }}/releases/tag/v$RELEASE_VERSION) ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 Branch Updates" >> $GITHUB_STEP_SUMMARY
+          echo "- **Master:** Updated to \`$RELEASE_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Development:** Updated to \`$NEXT_DEV_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Installation" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`xml" >> $GITHUB_STEP_SUMMARY
+          echo "<dependency>" >> $GITHUB_STEP_SUMMARY
+          echo "    <groupId>com.carlosmgv02</groupId>" >> $GITHUB_STEP_SUMMARY
+          echo "    <artifactId>logging-library</artifactId>" >> $GITHUB_STEP_SUMMARY
+          echo "    <version>$RELEASE_VERSION</version>" >> $GITHUB_STEP_SUMMARY
+          echo "</dependency>" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Update your projects** to use version \`$RELEASE_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Continue development** on \`development\` branch (now \`$NEXT_DEV_VERSION\`)" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Monitor** the release for any issues" >> $GITHUB_STEP_SUMMARY
