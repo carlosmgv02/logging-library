@@ -7,7 +7,7 @@
 
     <!-- Custom LogColorizer to colorize logs -->
     <property scope="context" name="COLORIZER_COLORS" value="red@,yellow@,green@,blue@,cyan@"/>
-    <conversionRule conversionWord="colorize" converterClass="org.tuxdude.logback.extensions.LogColorizer"/>
+    <conversionRule conversionWord="colorize" class="org.tuxdude.logback.extensions.LogColorizer"/>
 
     <!-- Console Appender -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
@@ -75,14 +75,22 @@
         <appender-ref ref="ASYNC_LOGSTASH"/>
     </logger>
 
-    <!-- Root logger -->
-    <root level="INFO">
-        <appender-ref ref="ASYNC_CONSOLE"/>
-        <appender-ref ref="ASYNC_LOGSTASH"/>
-        <springProfile name="!prod">
+    <!-- Root logger for production -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="ASYNC_CONSOLE"/>
+            <appender-ref ref="ASYNC_LOGSTASH"/>
+        </root>
+    </springProfile>
+
+    <!-- Root logger for non-production (includes FILE appender) -->
+    <springProfile name="!prod">
+        <root level="INFO">
+            <appender-ref ref="ASYNC_CONSOLE"/>
+            <appender-ref ref="ASYNC_LOGSTASH"/>
             <appender-ref ref="FILE"/>
-        </springProfile>
-    </root>
+        </root>
+    </springProfile>
 
     <!-- Reduce noise from Spring Boot -->
     <logger name="org.springframework" level="WARN"/>
