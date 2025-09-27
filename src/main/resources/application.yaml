@@ -18,6 +18,28 @@ logging:
       fail-on-connection-warnings: false
       validation-delay-ms: 2000
 
+  http:
+    tracing:
+      enabled: true
+      log-requests: true
+      log-responses: true
+      include-headers: false
+      include-payload: false
+      max-payload-length: 1000
+      exclude-patterns:
+        - "/actuator/**"
+        - "/health/**"
+        - "/metrics/**"
+        - "/favicon.ico"
+        - "/swagger-ui/**"
+        - "/v3/api-docs/**"
+      exclude-headers:
+        - "authorization"
+        - "cookie"
+        - "set-cookie"
+        - "x-api-key"
+        - "x-auth-token"
+
   sensitive-data:
     enabled: true
     patterns:
