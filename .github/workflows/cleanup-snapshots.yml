@@ -23,65 +23,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Cleanup snapshots
+        id: cleanup
+        uses: ./.github/actions/cleanup-snapshots
+        with:
+          cleanup-mode: ${{ github.event.inputs.cleanup_all == 'true' && 'all' || 'old-versions' }}
+          keep-versions-count: ${{ github.event.inputs.keep_count || '3' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show remaining releases
         run: |
-          KEEP_COUNT="${{ github.event.inputs.keep_count || '3' }}"
-          CLEANUP_ALL="${{ github.event.inputs.cleanup_all }}"
-          
-          echo "🧹 Starting snapshot cleanup..."
-          echo "Keep count: $KEEP_COUNT"
-          echo "Cleanup all: $CLEANUP_ALL"
-          
-          # Get all releases
-          ALL_RELEASES=$(gh release list --limit 100 --json tagName,isPrerelease,createdAt,publishedAt | jq 'sort_by(.publishedAt) | reverse')
-          
-          if [ "$CLEANUP_ALL" = "true" ]; then
-            echo "⚠️ CLEANUP ALL MODE - Deleting ALL snapshots..."
-            
-            SNAPSHOT_RELEASES=$(echo "$ALL_RELEASES" | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-") or contains("-SNAPSHOT"))) | .tagName')
-            
-            DELETED_COUNT=0
-            for snapshot in $SNAPSHOT_RELEASES; do
-              echo "Deleting snapshot: $snapshot"
-              if gh release delete $snapshot --yes --cleanup-tag; then
-                DELETED_COUNT=$((DELETED_COUNT + 1))
-              else
-                echo "Failed to delete $snapshot"
-              fi
-            done
-            
-            echo "✅ Deleted $DELETED_COUNT snapshot releases"
-          else
-            echo "🔄 SELECTIVE CLEANUP - Keeping $KEEP_COUNT most recent snapshots..."
-            
-            # Get snapshot releases sorted by date (newest first)
-            SNAPSHOT_RELEASES=$(echo "$ALL_RELEASES" | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-") or contains("-SNAPSHOT"))) | .tagName')
-            
-            SNAPSHOT_COUNT=0
-            DELETED_COUNT=0
-            KEPT_COUNT=0
-            
-            for snapshot in $SNAPSHOT_RELEASES; do
-              if [ $SNAPSHOT_COUNT -lt $KEEP_COUNT ]; then
-                echo "Keeping recent snapshot: $snapshot"
-                KEPT_COUNT=$((KEPT_COUNT + 1))
-              else
-                echo "Deleting old snapshot: $snapshot"
-                if gh release delete $snapshot --yes --cleanup-tag; then
-                  DELETED_COUNT=$((DELETED_COUNT + 1))
-                else
-                  echo "Failed to delete $snapshot"
-                fi
-              fi
-              SNAPSHOT_COUNT=$((SNAPSHOT_COUNT + 1))
-            done
-            
-            echo "✅ Cleanup completed:"
-            echo "  - Kept: $KEPT_COUNT snapshots"
-            echo "  - Deleted: $DELETED_COUNT snapshots"
-          fi
-          
-          # Show remaining releases
           echo ""
           echo "📋 Remaining releases:"
           gh release list --limit 20
@@ -92,25 +46,29 @@ jobs:
         run: |
           KEEP_COUNT="${{ github.event.inputs.keep_count || '3' }}"
           CLEANUP_ALL="${{ github.event.inputs.cleanup_all }}"
-          
+          DELETED_COUNT="${{ steps.cleanup.outputs.deleted-count }}"
+          KEPT_COUNT="${{ steps.cleanup.outputs.kept-count }}"
+
           echo "## 🧹 Snapshot Cleanup Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ "$CLEANUP_ALL" = "true" ]; then
             echo "### ⚠️ Complete Cleanup Performed" >> $GITHUB_STEP_SUMMARY
             echo "- **Action:** Deleted ALL snapshot releases" >> $GITHUB_STEP_SUMMARY
+            echo "- **Deleted:** $DELETED_COUNT snapshots" >> $GITHUB_STEP_SUMMARY
             echo "- **Kept:** Only official releases (v*.*.*)" >> $GITHUB_STEP_SUMMARY
           else
             echo "### 🔄 Selective Cleanup Performed" >> $GITHUB_STEP_SUMMARY
-            echo "- **Action:** Kept $KEEP_COUNT most recent snapshots" >> $GITHUB_STEP_SUMMARY
-            echo "- **Deleted:** All older snapshot releases" >> $GITHUB_STEP_SUMMARY
+            echo "- **Action:** Kept $KEEP_COUNT most recent version types" >> $GITHUB_STEP_SUMMARY
+            echo "- **Deleted:** $DELETED_COUNT snapshots" >> $GITHUB_STEP_SUMMARY
+            echo "- **Kept:** $KEPT_COUNT snapshots" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📋 Current Releases" >> $GITHUB_STEP_SUMMARY
           echo "Check the [Releases page](https://github.com/${{ github.repository }}/releases) to see current releases." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔄 Automatic Cleanup" >> $GITHUB_STEP_SUMMARY
-          echo "- **Snapshot releases:** Automatically keep latest 3" >> $GITHUB_STEP_SUMMARY
+          echo "- **Snapshot releases:** Automatically keep latest 3 version types" >> $GITHUB_STEP_SUMMARY
           echo "- **Production releases:** Cleanup matching snapshots when released" >> $GITHUB_STEP_SUMMARY
           echo "- **Manual cleanup:** Use this workflow for custom cleanup" >> $GITHUB_STEP_SUMMARY

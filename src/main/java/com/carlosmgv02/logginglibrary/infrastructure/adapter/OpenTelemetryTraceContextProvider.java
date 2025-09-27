@@ -23,7 +23,6 @@ public class OpenTelemetryTraceContextProvider implements TraceContextProvider {
                 }
             }
         } catch (Exception e) {
-            // Silently ignore OpenTelemetry errors
         }
         return Optional.empty();
     }
