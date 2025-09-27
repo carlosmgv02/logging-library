@@ -89,7 +89,7 @@ jobs:
               RELEASE_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
               ;;
           esac
-          
+
           # Calculate next development version
           IFS='.' read -r -a rel_parts <<< "$RELEASE_VERSION"
           REL_MAJOR=${rel_parts[0]}
@@ -129,20 +129,20 @@ jobs:
           RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
           VERSION_TYPE="${{ steps.version_info.outputs.version_type }}"
           TODAY=$(date +"%Y-%m-%d")
-          
+
           # Create or update CHANGELOG.md
           if [ ! -f CHANGELOG.md ]; then
             echo "# Changelog" > CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-          
+
           # Prepare changelog entry
           TEMP_CHANGELOG=$(mktemp)
           echo "# Changelog" > $TEMP_CHANGELOG
           echo "" >> $TEMP_CHANGELOG
           echo "## [${RELEASE_VERSION}] - ${TODAY}" >> $TEMP_CHANGELOG
           echo "" >> $TEMP_CHANGELOG
-          
+
           # Add version type information
           case $VERSION_TYPE in
             "major")
@@ -155,7 +155,7 @@ jobs:
               echo "### 🐛 Patch Release - Bug Fixes" >> $TEMP_CHANGELOG
               ;;
           esac
-          
+
           echo "" >> $TEMP_CHANGELOG
           echo "### Features & Improvements" >> $TEMP_CHANGELOG
           echo "- Professional logging library with hexagonal architecture" >> $TEMP_CHANGELOG
@@ -164,21 +164,21 @@ jobs:
           echo "- OpenTelemetry tracing integration" >> $TEMP_CHANGELOG
           echo "- ELK stack integration for centralized logging" >> $TEMP_CHANGELOG
           echo "" >> $TEMP_CHANGELOG
-          
+
           # Add existing changelog content
           if [ -f CHANGELOG.md ]; then
             tail -n +2 CHANGELOG.md >> $TEMP_CHANGELOG
           fi
-          
+
           mv $TEMP_CHANGELOG CHANGELOG.md
-          
+
           echo "✅ CHANGELOG updated for version $RELEASE_VERSION"
 
       - name: Commit release version
         run: |
           RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
           VERSION_TYPE="${{ steps.version_info.outputs.version_type }}"
-          
+
           git add pom.xml CHANGELOG.md
           git commit -m "chore: release version $RELEASE_VERSION
 
@@ -227,6 +227,45 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Cleanup old snapshots
+        run: |
+          RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
+          
+          echo "🧹 Cleaning up obsolete snapshots before creating release..."
+          
+          # Get all releases
+          ALL_RELEASES=$(gh release list --limit 100 --json tagName,isPrerelease,createdAt)
+          
+          # Find snapshots that should be cleaned up
+          echo "Looking for snapshots to cleanup..."
+          
+          # Delete old snapshot releases (keep only the latest 2 snapshots)
+          SNAPSHOT_RELEASES=$(echo "$ALL_RELEASES" | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-"))) | .tagName' | head -n +10)
+          
+          SNAPSHOT_COUNT=0
+          for snapshot in $SNAPSHOT_RELEASES; do
+            if [ $SNAPSHOT_COUNT -ge 2 ]; then
+              echo "Deleting old snapshot: $snapshot"
+              gh release delete $snapshot --yes --cleanup-tag || echo "Failed to delete $snapshot"
+            else
+              echo "Keeping recent snapshot: $snapshot"
+            fi
+            SNAPSHOT_COUNT=$((SNAPSHOT_COUNT + 1))
+          done
+          
+          # Also cleanup any snapshots that match the version being released
+          BASE_VERSION=${RELEASE_VERSION}
+          MATCHING_SNAPSHOTS=$(echo "$ALL_RELEASES" | jq -r --arg version "$BASE_VERSION" '.[] | select(.isPrerelease == true and (.tagName | contains($version + "-SNAPSHOT"))) | .tagName')
+          
+          for snapshot in $MATCHING_SNAPSHOTS; do
+            echo "Deleting snapshot for released version: $snapshot"
+            gh release delete $snapshot --yes --cleanup-tag || echo "Failed to delete $snapshot"
+          done
+          
+          echo "✅ Snapshot cleanup completed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
         run: |
           RELEASE_VERSION="${{ steps.version_info.outputs.release_version }}"
@@ -245,23 +284,23 @@ jobs:
 
           ${CHANGELOG_CONTENT:-Auto-generated release with enhanced logging capabilities}
 
-          ### 🏗️ Enterprise Features
-          - **Hexagonal Architecture** with domain-driven design
-          - **System Validation** with real connectivity checks  
-          - **Sensitive Data Filtering** with configurable patterns
-          - **OpenTelemetry Integration** for distributed tracing
-          - **ELK Stack Integration** for centralized logging
+            ### 🏗️ Enterprise Features
+            - **Hexagonal Architecture** with domain-driven design
+            - **System Validation** with real connectivity checks
+            - **Sensitive Data Filtering** with configurable patterns
+            - **OpenTelemetry Integration** for distributed tracing
+            - **ELK Stack Integration** for centralized logging
 
-          ### 📦 Installation
+            ### 📦 Installation
 
-          #### Maven
-          \`\`\`xml
-          <dependency>
-              <groupId>com.carlosmgv02</groupId>
-              <artifactId>logging-library</artifactId>
+            #### Maven
+            \`\`\`xml
+            <dependency>
+                <groupId>com.carlosmgv02</groupId>
+                <artifactId>logging-library</artifactId>
               <version>${RELEASE_VERSION}</version>
-          </dependency>
-          \`\`\`
+            </dependency>
+            \`\`\`
 
           ### 🔧 Configuration
           See [CONSUMER_SETUP.md](.github/CONSUMER_SETUP.md) for GitHub Packages setup instructions.

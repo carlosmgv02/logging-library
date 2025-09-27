@@ -104,6 +104,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Cleanup old snapshots
+        run: |
+          echo "🧹 Cleaning up old snapshots (keeping latest 3)..."
+          
+          # Get all snapshot releases
+          SNAPSHOT_RELEASES=$(gh release list --limit 50 --json tagName,isPrerelease,createdAt | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-"))) | .tagName' | tail -n +4)
+          
+          for snapshot in $SNAPSHOT_RELEASES; do
+            echo "Deleting old snapshot: $snapshot"
+            gh release delete $snapshot --yes --cleanup-tag || echo "Failed to delete $snapshot"
+          done
+          
+          echo "✅ Old snapshots cleanup completed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create snapshot tag and pre-release
         id: create_prerelease
         run: |
