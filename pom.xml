@@ -12,7 +12,7 @@
 
     <groupId>com.carlosmgv02</groupId>
     <artifactId>logging-library</artifactId>
-    <version>0.0.4-SNAPSHOT</version>
+    <version>0.0.5-SNAPSHOT</version>
     <name>Professional Logging Library</name>
     <description>A production-ready logging library built with Hexagonal Architecture for Spring Boot applications</description>
     <url>https://github.com/carlosmgv02/logging-library</url>
