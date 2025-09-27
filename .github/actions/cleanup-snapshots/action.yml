@@ -1,0 +1,144 @@
+name: 'Cleanup Snapshots'
+description: 'Clean up old snapshot releases with flexible options'
+
+inputs:
+  cleanup-mode:
+    description: 'Cleanup mode: same-version, old-versions, or all'
+    required: true
+    default: 'old-versions'
+  current-version:
+    description: 'Current version to clean (for same-version mode)'
+    required: false
+    default: ''
+  keep-versions-count:
+    description: 'Number of different versions to keep (for old-versions mode)'
+    required: false
+    default: '3'
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+
+outputs:
+  deleted-count:
+    description: 'Number of snapshots deleted'
+    value: ${{ steps.cleanup.outputs.deleted-count }}
+  kept-count:
+    description: 'Number of snapshots kept'
+    value: ${{ steps.cleanup.outputs.kept-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cleanup snapshots
+      id: cleanup
+      shell: bash
+      run: |
+        CLEANUP_MODE="${{ inputs.cleanup-mode }}"
+        CURRENT_VERSION="${{ inputs.current-version }}"
+        KEEP_VERSIONS_COUNT="${{ inputs.keep-versions-count }}"
+
+        echo "🧹 Starting snapshot cleanup..."
+        echo "Mode: $CLEANUP_MODE"
+        echo "Current version: $CURRENT_VERSION"
+        echo "Keep versions count: $KEEP_VERSIONS_COUNT"
+
+        DELETED_COUNT=0
+        KEPT_COUNT=0
+
+        case $CLEANUP_MODE in
+          "same-version")
+            if [ -z "$CURRENT_VERSION" ]; then
+              echo "❌ Error: current-version is required for same-version mode"
+              exit 1
+            fi
+
+            echo "🗑️ Deleting all existing snapshots for version $CURRENT_VERSION..."
+            EXISTING_SAME_VERSION=$(gh release list --limit 50 --json tagName,isPrerelease | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-'$CURRENT_VERSION'-"))) | .tagName')
+
+            for snapshot in $EXISTING_SAME_VERSION; do
+              echo "Deleting existing snapshot: $snapshot"
+              if gh release delete $snapshot --yes --cleanup-tag; then
+                DELETED_COUNT=$((DELETED_COUNT + 1))
+              else
+                echo "Failed to delete $snapshot"
+              fi
+            done
+
+            if [ $DELETED_COUNT -gt 0 ]; then
+              echo "✅ Deleted $DELETED_COUNT existing snapshots for version $CURRENT_VERSION"
+            else
+              echo "ℹ️ No existing snapshots found for version $CURRENT_VERSION"
+            fi
+            ;;
+
+          "old-versions")
+            echo "🧹 Cleaning up old snapshots from different versions (keeping latest $KEEP_VERSIONS_COUNT different versions)..."
+
+            # Get all snapshot releases grouped by version
+            ALL_SNAPSHOTS=$(gh release list --limit 50 --json tagName,isPrerelease,publishedAt | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-"))) | "\(.publishedAt)|\(.tagName)"' | sort -r)
+
+            # Extract unique version numbers and keep only the N most recent different versions
+            UNIQUE_VERSIONS=$(echo "$ALL_SNAPSHOTS" | sed -E 's/.*snapshot-([^-]+)-SNAPSHOT-.*/\1/' | awk '!seen[$0]++' | head -$KEEP_VERSIONS_COUNT)
+
+            echo "📋 Keeping these versions: $(echo "$UNIQUE_VERSIONS" | tr '\n' ' ')"
+
+            # Count kept snapshots
+            for version in $UNIQUE_VERSIONS; do
+              VERSION_COUNT=$(echo "$ALL_SNAPSHOTS" | grep "snapshot-$version-SNAPSHOT-" | wc -l)
+              KEPT_COUNT=$((KEPT_COUNT + VERSION_COUNT))
+            done
+
+            # Delete snapshots not in the top N versions
+            for snapshot_line in $ALL_SNAPSHOTS; do
+              TAG_NAME=$(echo "$snapshot_line" | cut -d'|' -f2)
+              VERSION=$(echo "$TAG_NAME" | sed -E 's/.*snapshot-([^-]+)-SNAPSHOT-.*/\1/')
+
+              if ! echo "$UNIQUE_VERSIONS" | grep -q "^$VERSION$"; then
+                echo "Deleting old version snapshot: $TAG_NAME (version $VERSION)"
+                if gh release delete "$TAG_NAME" --yes --cleanup-tag; then
+                  DELETED_COUNT=$((DELETED_COUNT + 1))
+                else
+                  echo "Failed to delete $TAG_NAME"
+                fi
+              fi
+            done
+
+            if [ $DELETED_COUNT -gt 0 ]; then
+              echo "✅ Deleted $DELETED_COUNT snapshots from old versions"
+            else
+              echo "ℹ️ No old version snapshots to delete"
+            fi
+            ;;
+
+          "all")
+            echo "⚠️ CLEANUP ALL MODE - Deleting ALL snapshots..."
+
+            ALL_SNAPSHOT_RELEASES=$(gh release list --limit 100 --json tagName,isPrerelease | jq -r '.[] | select(.isPrerelease == true and (.tagName | contains("snapshot-") or contains("-SNAPSHOT"))) | .tagName')
+
+            for snapshot in $ALL_SNAPSHOT_RELEASES; do
+              echo "Deleting snapshot: $snapshot"
+              if gh release delete $snapshot --yes --cleanup-tag; then
+                DELETED_COUNT=$((DELETED_COUNT + 1))
+              else
+                echo "Failed to delete $snapshot"
+              fi
+            done
+
+            echo "✅ Deleted $DELETED_COUNT snapshot releases"
+            ;;
+
+          *)
+            echo "❌ Error: Unknown cleanup mode '$CLEANUP_MODE'. Valid modes: same-version, old-versions, all"
+            exit 1
+            ;;
+        esac
+
+        echo "deleted-count=$DELETED_COUNT" >> $GITHUB_OUTPUT
+        echo "kept-count=$KEPT_COUNT" >> $GITHUB_OUTPUT
+
+        echo "📊 Cleanup Summary:"
+        echo "  - Deleted: $DELETED_COUNT snapshots"
+        echo "  - Kept: $KEPT_COUNT snapshots"
+        echo "✅ Cleanup completed"
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
