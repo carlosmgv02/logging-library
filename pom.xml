@@ -12,7 +12,7 @@
 
     <groupId>com.carlosmgv02</groupId>
     <artifactId>logging-library</artifactId>
-    <version>0.0.4-SNAPSHOT</version>
+    <version>0.0.5-SNAPSHOT</version>
     <name>Professional Logging Library</name>
     <description>A production-ready logging library built with Hexagonal Architecture for Spring Boot applications</description>
     <url>https://github.com/carlosmgv02/logging-library</url>
@@ -67,6 +67,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Web Starter for HTTP Filter support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <optional>true</optional>
         </dependency>
 
         <!-- OpenTelemetry API -->
