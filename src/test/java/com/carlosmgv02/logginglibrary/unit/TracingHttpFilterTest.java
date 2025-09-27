@@ -52,6 +52,9 @@ class TracingHttpFilterTest {
         when(traceContextProvider.getCurrentSpanId()).thenReturn(Optional.of(expectedSpanId));
         when(request.getMethod()).thenReturn("GET");
         when(request.getRequestURI()).thenReturn("/test");
+        when(request.getHeader(LoggingConstants.TRACE_ID_HEADER)).thenReturn(null);
+        when(request.getHeader(LoggingConstants.SPAN_ID_HEADER)).thenReturn(null);
+        when(request.getHeader("X-Correlation-ID")).thenReturn(null);
 
         filter.doFilter(request, response, filterChain);
 
@@ -70,6 +73,8 @@ class TracingHttpFilterTest {
         when(traceContextProvider.getCurrentSpanId()).thenReturn(Optional.of(expectedSpanId));
         when(request.getMethod()).thenReturn("POST");
         when(request.getRequestURI()).thenReturn("/api/test");
+        when(request.getHeader(LoggingConstants.TRACE_ID_HEADER)).thenReturn(null);
+        when(request.getHeader(LoggingConstants.SPAN_ID_HEADER)).thenReturn(null);
         when(request.getHeader("X-Correlation-ID")).thenReturn(correlationId);
 
         filter.doFilter(request, response, filterChain);
@@ -86,11 +91,33 @@ class TracingHttpFilterTest {
         when(traceContextProvider.getCurrentSpanId()).thenReturn(Optional.empty());
         when(request.getMethod()).thenReturn("GET");
         when(request.getRequestURI()).thenReturn("/test");
+        when(request.getHeader(LoggingConstants.TRACE_ID_HEADER)).thenReturn(null);
+        when(request.getHeader(LoggingConstants.SPAN_ID_HEADER)).thenReturn(null);
+        when(request.getHeader("X-Correlation-ID")).thenReturn(null);
 
         filter.doFilter(request, response, filterChain);
 
         verify(response, never()).setHeader(eq(LoggingConstants.TRACE_ID_HEADER), any());
         verify(response, never()).setHeader(eq(LoggingConstants.SPAN_ID_HEADER), any());
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void shouldUseIncomingHeadersOverGeneratedIds() throws ServletException, IOException {
+        String incomingTraceId = "incoming-trace-123";
+        String incomingSpanId = "incoming-span-456";
+
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/test");
+        when(request.getHeader(LoggingConstants.TRACE_ID_HEADER)).thenReturn(incomingTraceId);
+        when(request.getHeader(LoggingConstants.SPAN_ID_HEADER)).thenReturn(incomingSpanId);
+        when(request.getHeader("X-Correlation-ID")).thenReturn(null);
+
+        filter.doFilter(request, response, filterChain);
+
+        // Should use incoming headers, not generated IDs
+        verify(response).setHeader(LoggingConstants.TRACE_ID_HEADER, incomingTraceId);
+        verify(response).setHeader(LoggingConstants.SPAN_ID_HEADER, incomingSpanId);
         verify(filterChain).doFilter(request, response);
     }
 }

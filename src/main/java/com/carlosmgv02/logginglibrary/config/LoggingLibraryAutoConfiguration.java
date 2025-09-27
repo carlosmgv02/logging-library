@@ -2,8 +2,10 @@ package com.carlosmgv02.logginglibrary.config;
 
 import com.carlosmgv02.logginglibrary.domain.port.TraceContextProvider;
 import com.carlosmgv02.logginglibrary.infrastructure.adapter.SensitiveDataProperties;
+import com.carlosmgv02.logginglibrary.infrastructure.aop.TransactionalMdcInterceptor;
 import com.carlosmgv02.logginglibrary.infrastructure.config.HttpTracingProperties;
 import com.carlosmgv02.logginglibrary.infrastructure.config.LoggingProperties;
+import com.carlosmgv02.logginglibrary.infrastructure.transaction.MdcTransactionManager;
 import com.carlosmgv02.logginglibrary.infrastructure.web.TracingHttpFilter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -37,6 +39,27 @@ public class LoggingLibraryAutoConfiguration {
         @Bean
         public TracingHttpFilter tracingHttpFilter(TraceContextProvider traceContextProvider) {
             return new TracingHttpFilter(traceContextProvider);
+        }
+    }
+
+    @Configuration
+    @ConditionalOnClass(name = "org.springframework.transaction.annotation.Transactional")
+    @ConditionalOnProperty(name = "logging.transaction.mdc.enabled", havingValue = "true", matchIfMissing = false)
+    static class TransactionMdcConfiguration {
+
+        public TransactionMdcConfiguration() {
+            log.info("Transaction MDC preservation enabled");
+        }
+
+        @Bean
+        public MdcTransactionManager mdcTransactionManager() {
+            return new MdcTransactionManager();
+        }
+
+        @Bean
+        public TransactionalMdcInterceptor transactionalMdcInterceptor(MdcTransactionManager mdcTransactionManager) {
+            log.info("🏗️ Creating TransactionalMdcInterceptor bean");
+            return new TransactionalMdcInterceptor(mdcTransactionManager);
         }
     }
 }

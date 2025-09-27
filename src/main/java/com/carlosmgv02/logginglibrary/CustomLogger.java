@@ -1,6 +1,7 @@
 package com.carlosmgv02.logginglibrary;
 
 import com.carlosmgv02.logginglibrary.application.service.LoggingApplicationService;
+import com.carlosmgv02.logginglibrary.shared.util.MessageFormatter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -71,6 +72,63 @@ public class CustomLogger {
     public static void error(String message, Throwable throwable) {
         if (loggingService != null) {
             loggingService.error(message, throwable);
+        }
+    }
+
+    // Formatted logging methods with placeholder support
+
+    public static void trace(String messagePattern, Object... arguments) {
+        if (loggingService != null) {
+            MessageFormatter.FormattedMessage formatted = MessageFormatter.formatWithThrowable(messagePattern, arguments);
+            if (formatted.hasThrowable()) {
+                loggingService.trace(formatted.getMessage(), formatted.getThrowable());
+            } else {
+                loggingService.trace(formatted.getMessage());
+            }
+        }
+    }
+
+    public static void debug(String messagePattern, Object... arguments) {
+        if (loggingService != null) {
+            MessageFormatter.FormattedMessage formatted = MessageFormatter.formatWithThrowable(messagePattern, arguments);
+            if (formatted.hasThrowable()) {
+                loggingService.debug(formatted.getMessage(), formatted.getThrowable());
+            } else {
+                loggingService.debug(formatted.getMessage());
+            }
+        }
+    }
+
+    public static void info(String messagePattern, Object... arguments) {
+        if (loggingService != null) {
+            MessageFormatter.FormattedMessage formatted = MessageFormatter.formatWithThrowable(messagePattern, arguments);
+            if (formatted.hasThrowable()) {
+                loggingService.info(formatted.getMessage(), formatted.getThrowable());
+            } else {
+                loggingService.info(formatted.getMessage());
+            }
+        }
+    }
+
+    public static void warn(String messagePattern, Object... arguments) {
+        if (loggingService != null) {
+            MessageFormatter.FormattedMessage formatted = MessageFormatter.formatWithThrowable(messagePattern, arguments);
+            if (formatted.hasThrowable()) {
+                loggingService.warn(formatted.getMessage(), formatted.getThrowable());
+            } else {
+                loggingService.warn(formatted.getMessage());
+            }
+        }
+    }
+
+    public static void error(String messagePattern, Object... arguments) {
+        if (loggingService != null) {
+            MessageFormatter.FormattedMessage formatted = MessageFormatter.formatWithThrowable(messagePattern, arguments);
+            if (formatted.hasThrowable()) {
+                loggingService.error(formatted.getMessage(), formatted.getThrowable());
+            } else {
+                loggingService.error(formatted.getMessage());
+            }
         }
     }
 }

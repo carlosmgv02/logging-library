@@ -12,7 +12,7 @@
 
     <groupId>com.carlosmgv02</groupId>
     <artifactId>logging-library</artifactId>
-    <version>0.0.5-SNAPSHOT</version>
+    <version>0.0.6-SNAPSHOT</version>
     <name>Professional Logging Library</name>
     <description>A production-ready logging library built with Hexagonal Architecture for Spring Boot applications</description>
     <url>https://github.com/carlosmgv02/logging-library</url>
@@ -76,6 +76,20 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Spring Boot AOP Starter for transaction interceptors -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Transaction for @Transactional support -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- OpenTelemetry API -->
         <dependency>
             <groupId>io.opentelemetry</groupId>
@@ -134,6 +148,12 @@
             <artifactId>logback-colorizer</artifactId>
             <version>1.0.1</version>
             <type>jar</type>
+        </dependency>
+
+        <!-- Janino for conditional processing in logback -->
+        <dependency>
+            <groupId>org.codehaus.janino</groupId>
+            <artifactId>janino</artifactId>
         </dependency>
 
         <!-- Lombok for reducing boilerplate code -->
