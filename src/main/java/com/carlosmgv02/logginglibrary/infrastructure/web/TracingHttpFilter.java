@@ -1,6 +1,7 @@
 package com.carlosmgv02.logginglibrary.infrastructure.web;
 
 import com.carlosmgv02.logginglibrary.domain.port.TraceContextProvider;
+import com.carlosmgv02.logginglibrary.infrastructure.context.MdcContext;
 import com.carlosmgv02.logginglibrary.shared.constants.LoggingConstants;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -15,8 +16,9 @@ import org.slf4j.MDC;
 import org.springframework.core.annotation.Order;
 
 import java.io.IOException;
+import java.util.Map;
 
-@Order(1)
+@Order(-1000) // Execute very early, before other filters
 @RequiredArgsConstructor
 @Slf4j
 public class TracingHttpFilter implements Filter {
@@ -34,8 +36,19 @@ public class TracingHttpFilter implements Filter {
         }
 
         try {
-            String traceId = traceContextProvider.getCurrentTraceId().orElse(null);
-            String spanId = traceContextProvider.getCurrentSpanId().orElse(null);
+            // First try to get traceId from incoming header
+            String incomingTraceId = httpRequest.getHeader(LoggingConstants.TRACE_ID_HEADER);
+            String incomingSpanId = httpRequest.getHeader(LoggingConstants.SPAN_ID_HEADER);
+
+            // Use incoming traceId if present, otherwise generate new one
+            String traceId = (incomingTraceId != null && !incomingTraceId.isEmpty())
+                    ? incomingTraceId
+                    : traceContextProvider.getCurrentTraceId().orElse(null);
+
+            // Use incoming spanId if present, otherwise generate new one
+            String spanId = (incomingSpanId != null && !incomingSpanId.isEmpty())
+                    ? incomingSpanId
+                    : traceContextProvider.getCurrentSpanId().orElse(null);
 
             if (traceId != null && !traceId.isEmpty()) {
                 MDC.put(LoggingConstants.MDC_TRACE_ID, traceId);
@@ -59,20 +72,38 @@ public class TracingHttpFilter implements Filter {
             MDC.put("httpMethod", method);
             MDC.put("requestUri", uri);
 
-            log.debug("HTTP Request started - Method: {}, URI: {}, TraceId: {}, SpanId: {}",
+            // Backup the complete MDC context INCLUDING traceId for later restoration
+            MdcContext.backup();
+            log.info("💾 HTTP Filter - Backed up MDC context for later restoration");
+
+            // Debug logging to track MDC state before proceeding
+            Map<String, String> mdcBeforeChain = MDC.getCopyOfContextMap();
+            log.info("🔍 HTTP Filter BEFORE chain.doFilter() - MDC: {}", mdcBeforeChain);
+
+            log.info("🚀 HTTP Request started - Method: {}, URI: {}, TraceId: {}, SpanId: {}",
                      method, uri, traceId, spanId);
 
             chain.doFilter(request, response);
 
-            log.debug("HTTP Request completed - Method: {}, URI: {}, Status: {}",
+            // Debug logging to track MDC state after proceeding
+            Map<String, String> mdcAfterChain = MDC.getCopyOfContextMap();
+            log.info("🔍 HTTP Filter AFTER chain.doFilter() - MDC: {}", mdcAfterChain);
+
+            log.info("✅ HTTP Request completed - Method: {}, URI: {}, Status: {}",
                      method, uri, httpResponse.getStatus());
 
         } finally {
-            MDC.remove(LoggingConstants.MDC_TRACE_ID);
-            MDC.remove(LoggingConstants.MDC_SPAN_ID);
-            MDC.remove("correlationId");
+            // Only remove HTTP-specific context, keep tracing context for the full request
             MDC.remove("httpMethod");
             MDC.remove("requestUri");
+            MDC.remove("correlationId");
+
+            // Clear backup at the end of the request
+            MdcContext.clearBackup();
+            log.info("🧹 HTTP Filter - Cleared backup at end of request");
+
+            // Keep traceId and spanId available for the entire request lifecycle
+            // They will be cleaned up when the thread is returned to the pool
         }
     }
 }

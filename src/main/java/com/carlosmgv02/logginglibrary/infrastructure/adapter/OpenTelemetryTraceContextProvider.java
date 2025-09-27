@@ -22,7 +22,7 @@ public class OpenTelemetryTraceContextProvider implements TraceContextProvider {
                     return Optional.of(spanContext.getTraceId());
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception ignored) {
         }
         return Optional.empty();
     }

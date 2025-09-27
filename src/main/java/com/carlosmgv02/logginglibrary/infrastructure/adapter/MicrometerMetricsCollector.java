@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -47,12 +46,6 @@ public class MicrometerMetricsCollector implements LogMetricsCollector {
     @Override
     public void recordLogProcessingTime(long processingTimeMs) {
         processingTimer.record(processingTimeMs, TimeUnit.MILLISECONDS);
-    }
-
-    @Override
-    public void recordLogSize(int logSizeBytes) {
-        meterRegistry.summary("logging.entry.size", "unit", "bytes")
-                .record(logSizeBytes);
     }
 
     @Override
