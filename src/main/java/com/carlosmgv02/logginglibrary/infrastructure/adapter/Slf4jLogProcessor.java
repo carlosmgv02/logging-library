@@ -28,7 +28,7 @@ public class Slf4jLogProcessor implements LogProcessor {
 
     @Override
     public boolean isEnabled(LogEntry logEntry) {
-        return true; // Always enabled for SLF4J
+        return true;
     }
 
     private void enrichMDC(LogEntry logEntry) {
