@@ -17,7 +17,4 @@ public class LoggingValidationException extends RuntimeException {
         super(message);
     }
 
-    public LoggingValidationException(String message, Throwable cause) {
-        super(message, cause);
-    }
 }

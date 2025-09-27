@@ -99,10 +99,18 @@ public class LoggingSystemValidator {
             .build();
     }
 
+    /**
+     * Checks if logging validation is enabled via configuration.
+     *
+     * @return true if validation is enabled, false otherwise
+     */
     private boolean isValidationEnabled() {
         return loggingProperties.getValidation().isEnabled();
     }
 
+    /**
+     * Waits for a configured delay to allow appenders to initialize before validation.
+     */
     private void awaitAppenderInitialization() {
         int delayMs = loggingProperties.getValidation().getValidationDelayMs();
         if (delayMs > 0) {
@@ -115,6 +123,11 @@ public class LoggingSystemValidator {
         }
     }
 
+    /**
+     * Assesses connectivity to Logstash if a Logstash appender is configured.
+     * @param appenders List of appenders to check
+     * @return LogstashConnectivity status
+     */
     private LogstashConnectivity assessLogstashConnectivity(List<Appender<ch.qos.logback.classic.spi.ILoggingEvent>> appenders) {
         Optional<LogstashTcpSocketAppender> logstashAppender = appenders.stream()
             .map(this::findLogstashAppender)
@@ -127,12 +140,24 @@ public class LoggingSystemValidator {
 
     }
 
+    /**
+     * Counts the number of system-level errors in the logging context.
+     *
+     * @param context LoggerContext to inspect
+     * @return Count of system errors
+     */
     private long countSystemErrors(LoggerContext context) {
         return context.getStatusManager().getCopyOfStatusList().stream()
             .filter(status -> status.getLevel() == Status.ERROR)
             .count();
     }
 
+    /**
+     * Collects non-critical issues from the list of appenders.
+     *
+     * @param appenders List of appenders to inspect
+     * @return List of issue descriptions
+     */
     private List<String> collectIssues(List<Appender<ch.qos.logback.classic.spi.ILoggingEvent>> appenders) {
         List<String> issues = new ArrayList<>();
 
@@ -143,6 +168,12 @@ public class LoggingSystemValidator {
         return issues;
     }
 
+    /**
+     * Handles the results of the validation, throwing exceptions for critical issues
+     * and logging warnings or info for non-critical issues.
+     *
+     * @param result ValidationResult to process
+     */
     private void handleValidationResult(ValidationResult result) {
         LoggingProperties.ValidationProperties config = loggingProperties.getValidation();
 
